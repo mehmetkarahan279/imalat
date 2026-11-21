@@ -38,6 +38,14 @@
   .alert-box li { margin: 3px 0; }
   .nav-count { display: inline-block; min-width: 20px; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: #ea580c; color: white; font-size: 12px; font-weight: bold; }
   .error.warn { color: #b45309; }
+  .ledger-filters { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 12px; align-items: end; }
+  .ledger-table td.num, .ledger-table th.num { text-align: right; white-space: nowrap; }
+  .ledger-table .in { color: #15803d; font-weight: bold; }
+  .ledger-table .out { color: #b91c1c; font-weight: bold; }
+  .ledger-table tr.carry td { background: #f8fafc; font-style: italic; }
+  .ledger-table tr.total td { background: #eef2ff; font-weight: bold; border-top: 2px solid #c7d2fe; }
+  @media (max-width: 700px) { .ledger-filters { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 460px) { .ledger-filters { grid-template-columns: 1fr; } }
   header p { margin: 0; color: #cbd5e1; }
   main { max-width: 1200px; margin: 22px auto; padding: 0 16px; }
   nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
@@ -103,6 +111,74 @@
     .grid, .stats, .form-row, .filter-row { grid-template-columns: 1fr; }
     .recipe-row { grid-template-columns: 1fr 90px auto; }
   }
+
+  /* ================= Kurumsal tema (KBR lacivert / yeşil) ================= */
+  :root {
+    --navy: #182857; --navy-2: #22377e; --green: #25b360; --green-d: #1d8f4c; --green-l: #e9f8ef;
+    --bg: #f2f5f9; --line: #e2e8f0; --muted: #64748b;
+  }
+  body { background: var(--bg); }
+  button { font-weight: 600; transition: background .15s, color .15s, box-shadow .15s; }
+
+  header { background: linear-gradient(90deg, var(--navy) 0%, var(--navy-2) 100%); border-bottom: 4px solid var(--green);
+           padding: 14px max(16px, calc((100% - 1200px) / 2)); box-shadow: 0 2px 10px rgba(15, 23, 42, .15); }
+  .brand-head { display: flex; align-items: center; gap: 14px; }
+  .brand-logo { background: #fff; border-radius: 10px; padding: 6px 10px; display: flex; align-items: center; box-shadow: 0 2px 8px rgba(0, 0, 0, .18); }
+  .brand-logo img { height: 42px; display: block; }
+  header h1 { font-size: 20px; letter-spacing: .02em; margin: 0 0 3px; }
+  header p { color: #c7d2fe; font-size: 13px; }
+  .user-bar .role { background: var(--green); color: #fff; }
+  .user-bar button { background: rgba(255, 255, 255, .12); border: 1px solid rgba(255, 255, 255, .22); }
+  .user-bar button:hover { background: rgba(255, 255, 255, .24); }
+
+  nav { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 6px; gap: 4px; box-shadow: 0 1px 3px rgba(15, 23, 42, .05); }
+  nav button { background: transparent; color: #475569; border-radius: 8px; }
+  nav button:hover { background: #eef2f8; color: var(--navy); }
+  nav button.active { background: var(--navy); color: #fff; box-shadow: inset 0 -3px 0 var(--green); }
+
+  .primary { background: var(--green); color: #fff; }
+  .primary:hover { background: var(--green-d); }
+  .secondary { background: #eef2f8; color: var(--navy); }
+  .secondary:hover { background: #e0e7f1; }
+  .danger { background: #fdecec; color: #b91c1c; }
+  .danger:hover { background: #fbd5d5; }
+
+  .panel, .card { border-color: var(--line); border-radius: 12px; box-shadow: 0 1px 3px rgba(15, 23, 42, .05); }
+  .panel > h2 { display: flex; align-items: center; gap: 10px; color: var(--navy); padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .panel > h2::before { content: ""; flex: 0 0 4px; height: 18px; border-radius: 2px; background: var(--green); }
+
+  .stat { border-top: 4px solid var(--navy); }
+  .stats .stat:nth-child(2) { border-top-color: var(--green); }
+  .stats .stat:nth-child(3) { border-top-color: #0ea5e9; }
+  .stats .stat:nth-child(4) { border-top-color: #f59e0b; }
+  .stat .muted { text-transform: uppercase; letter-spacing: .05em; font-size: 12px; font-weight: bold; }
+  .stat strong { color: var(--navy); }
+  .stat strong small { font-size: 14px; font-weight: 600; color: var(--muted); }
+
+  th { background: #f4f6fb; color: var(--navy); }
+  tbody tr:hover td { background: #f8fafc; }
+  .ledger-table tr.total td { background: var(--green-l); border-top-color: var(--green); }
+
+  input:focus, select:focus { outline: none; border-color: var(--green); box-shadow: 0 0 0 3px rgba(37, 179, 96, .18); }
+  label { color: #334155; }
+  .notice { background: var(--green-l); border-left: 4px solid var(--green); color: #14532d; }
+  .lot-tag { background: #e3e8f7; color: var(--navy); }
+  .lot-tag:hover { background: var(--navy); color: #fff; }
+  .case { color: var(--green-d); }
+  .badge.admin { background: #e3e8f7; color: var(--navy); }
+  dialog h2 { color: var(--navy); }
+  dialog { border-top: 5px solid var(--green); }
+
+  .auth { background: radial-gradient(circle at 85% 110%, rgba(37, 179, 96, .55) 0%, rgba(37, 179, 96, 0) 45%),
+                      linear-gradient(135deg, var(--navy) 0%, var(--navy-2) 100%); }
+  .auth-card { border: 0; border-top: 5px solid var(--green); box-shadow: 0 20px 50px rgba(0, 0, 0, .25); }
+  .auth-card h1 { color: var(--navy); }
+  .auth-foot { position: fixed; bottom: 14px; left: 0; right: 0; text-align: center; color: rgba(255, 255, 255, .7); font-size: 12px; }
+
+  .app-foot { max-width: 1200px; margin: 6px auto 24px; padding: 14px 16px 0; border-top: 1px solid var(--line);
+              display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+  body.locked .app-foot { display: none; }
+  @media (max-width: 560px) { .brand-logo img { height: 32px; } header h1 { font-size: 17px; } }
 </style>
 </head>
 <body class="locked">
@@ -136,12 +212,16 @@
       <div class="error" id="setup-error"></div>
     </form>
   </div>
+  <div class="auth-foot" id="auth-foot"></div>
 </div>
 
 <header>
-  <div>
-    <h1>Üretim ve Depo Takip</h1>
-    <p>Kağıt bardak ve tabak imalatı</p>
+  <div class="brand-head">
+    <div class="brand-logo"><img id="header-logo" alt="Logo"></div>
+    <div>
+      <h1>Üretim ve Depo Takip</h1>
+      <p id="header-sub">Kağıt bardak ve tabak imalatı</p>
+    </div>
   </div>
   <div class="user-bar" id="user-bar"></div>
 </header>
@@ -323,6 +403,23 @@
       <div id="trace-result"></div>
     </div>
     <div class="panel">
+      <h2>Stok Hareket Raporu (Girdi / Çıktı)</h2>
+      <p class="muted" style="margin-top:-8px">Seçilen ürün veya hammaddenin dönem başı devri, tüm giriş ve çıkışları ve yürüyen bakiyesi.</p>
+      <div class="ledger-filters">
+        <div><label>Ürün / hammadde</label><select id="ledger-item"></select></div>
+        <div><label>Başlangıç tarihi</label><input type="date" id="ledger-from"></div>
+        <div><label>Bitiş tarihi</label><input type="date" id="ledger-to"></div>
+        <div><label>Parti</label><select id="ledger-lot"><option value="">Tüm partiler</option></select></div>
+      </div>
+      <div class="button-row">
+        <button type="button" class="primary" id="ledger-show">Raporu göster</button>
+        <button type="button" class="secondary" id="ledger-csv">CSV indir</button>
+        <button type="button" class="secondary" id="ledger-pdf">PDF yazdır</button>
+      </div>
+      <div class="stats" id="ledger-stats" style="margin-top:16px"></div>
+      <div id="ledger-table"></div>
+    </div>
+    <div class="panel">
       <h2>Raporlar ve Filtreleme</h2>
       <div class="filter-row">
         <div><label>Başlangıç tarihi</label><input type="date" id="report-from"></div>
@@ -437,6 +534,11 @@
     </div>
   </section>
 </main>
+
+<footer class="app-foot">
+  <span id="foot-company"></span>
+  <span>Üretim ve Depo Takip Sistemi</span>
+</footer>
 
 <dialog id="password-dialog">
   <form id="password-form" autocomplete="off">
@@ -1332,7 +1434,7 @@
 
   <div class="spacer"></div>
   <div class="foot">
-    <div>${esc(s.companyName)}${contact ? " · " + contact : ""}<br>Bu belge Mehmet KARAHAN - KBR tarafından oluşturulmuştur.</div>
+    <div>${esc(s.companyName)}${contact ? " · " + contact : ""}<br>Bu belge Üretim ve Depo Takip sistemi tarafından oluşturulmuştur.</div>
     <div class="right">${s.docCode ? `Doküman no: ${esc(s.docCode)}<br>` : ""}${count.by ? `Kaydeden: ${esc(count.by)}<br>` : ""}Yazdırma: ${esc(printedAt)}${currentUser ? ` (${esc(currentUser.name)})` : ""}</div>
   </div>
 </div>
@@ -1348,7 +1450,16 @@
   }
 
   // ---------- Firma bilgileri ve logo ----------
+  function renderBranding() {
+    const s = settings();
+    document.getElementById("header-logo").src = s.logo || DEFAULT_LOGO;
+    document.getElementById("header-sub").textContent = [s.companyName, s.companySubtitle].filter(Boolean).join(" · ");
+    document.getElementById("foot-company").textContent = `© ${new Date().getFullYear()} ${s.companyName}`;
+    document.getElementById("auth-foot").textContent = `© ${new Date().getFullYear()} ${s.companyName} · ${s.companySubtitle || ""}`;
+  }
+
   function renderSettings() {
+    renderBranding();
     const form = document.getElementById("settings-form");
     const s = settings();
     ["companyName", "companySubtitle", "address", "phone", "email", "taxInfo", "docCode"].forEach(k => {
@@ -1761,6 +1872,257 @@
     box.innerHTML = parts.length ? parts.join("") : '<div class="empty">Bu parti numarasıyla kayıt bulunamadı.</div>';
   }
 
+
+  // ================= Stok hareket raporu (girdi / çıktı ekstresi) =================
+  const IN_TYPES = ["Hammadde girişi", "Üretimden ürün girişi", "Üretim iptali - hammadde iadesi"];
+  const OUT_TYPES = ["Mamul sevkiyatı", "Üretimde hammadde tüketimi", "Üretim iptali - mamul düşüşü"];
+  const MATERIAL_TYPES = ["Hammadde girişi", "Üretimde hammadde tüketimi", "Üretim iptali - hammadde iadesi"];
+
+  function ledgerSelection() {
+    const [kind, itemId] = (document.getElementById("ledger-item").value || ":").split(":");
+    const item = byId(kind === "m" ? db.materials : db.products, itemId);
+    return item ? { kind, item } : null;
+  }
+
+  // Bir karta ait tüm hareketler, eskiden yeniye (aynı tarihte kayıt sırasına göre).
+  function itemMovements(kind, item) {
+    const isMaterialType = m => MATERIAL_TYPES.includes(m.type);
+    return db.movements
+      .map((m, index) => ({ m, order: db.movements.length - index }))
+      .filter(({ m }) => (kind === "m") === isMaterialType(m) && refersTo(m, "itemId", "item", item))
+      .filter(({ m }) => IN_TYPES.includes(m.type) || OUT_TYPES.includes(m.type))
+      .sort((a, b) => String(a.m.date).localeCompare(String(b.m.date)) || a.order - b.order)
+      .map(({ m }) => m);
+  }
+
+  const signed = m => (IN_TYPES.includes(m.type) ? 1 : -1) * num(m.quantity);
+
+  function buildLedger() {
+    const sel = ledgerSelection();
+    if (!sel) return null;
+    const { kind, item } = sel;
+    const from = document.getElementById("ledger-from").value;
+    const to = document.getElementById("ledger-to").value;
+    const lot = document.getElementById("ledger-lot").value;
+
+    let all = itemMovements(kind, item);
+    if (lot) all = all.filter(m => lotKey(m.lot || NO_LOT) === lotKey(lot));
+
+    // Açılış stokları hareket olarak kaydedilmediği için devir mevcut stoktan geriye doğru hesaplanır.
+    const current = lot ? lotQty(item, lot) : num(item.stock);
+    const fromIndex = from ? all.findIndex(m => String(m.date) >= from) : 0;
+    const afterFrom = fromIndex === -1 ? [] : all.slice(fromIndex);
+    const carry = round(current - afterFrom.reduce((sum, m) => sum + signed(m), 0));
+    const rows = afterFrom.filter(m => !to || String(m.date) <= to);
+
+    let balance = carry;
+    const lines = rows.map(m => {
+      balance = round(balance + signed(m));
+      const count = m.countId ? byId(db.counts, m.countId) : null;
+      return {
+        date: m.date,
+        doc: count ? slipNo(count) : "",
+        type: m.type,
+        lot: m.lot || "",
+        note: m.note || "",
+        by: m.by || "",
+        in: IN_TYPES.includes(m.type) ? num(m.quantity) : 0,
+        out: OUT_TYPES.includes(m.type) ? num(m.quantity) : 0,
+        balance
+      };
+    });
+
+    return {
+      kind, item, from, to, lot, carry, lines,
+      totalIn: round(lines.reduce((sum, l) => sum + l.in, 0)),
+      totalOut: round(lines.reduce((sum, l) => sum + l.out, 0)),
+      closing: balance
+    };
+  }
+
+  const ledgerCases = (L, qty) => L.kind === "p" ? caseText(L.item.perCase, qty, L.item.unit) : "";
+
+  function updateLedgerOptions() {
+    const select = document.getElementById("ledger-item");
+    const previous = select.value;
+    const option = (kind, x) => `<option value="${kind}:${esc(x.id)}">${esc(x.name)} (${esc(x.unit)})${isActive(x) ? "" : " — pasif"}</option>`;
+    select.innerHTML = '<option value="">Seçin</option>' +
+      (db.products.length ? `<optgroup label="Ürünler (mamul)">${db.products.map(x => option("p", x)).join("")}</optgroup>` : "") +
+      (db.materials.length ? `<optgroup label="Hammaddeler">${db.materials.map(x => option("m", x)).join("")}</optgroup>` : "");
+    if ([...select.options].some(o => o.value === previous)) select.value = previous;
+    updateLedgerLots();
+  }
+
+  function updateLedgerLots() {
+    const select = document.getElementById("ledger-lot");
+    const previous = select.value;
+    const sel = ledgerSelection();
+    const lots = new Set();
+    if (sel) {
+      (sel.item.lots || []).forEach(l => lots.add(l.lot));
+      itemMovements(sel.kind, sel.item).forEach(m => m.lot && lots.add(m.lot));
+    }
+    select.innerHTML = '<option value="">Tüm partiler</option>' +
+      [...lots].sort().map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join("");
+    if (lots.has(previous)) select.value = previous;
+  }
+
+  function renderLedger() {
+    const L = buildLedger();
+    const stats = document.getElementById("ledger-stats");
+    const box = document.getElementById("ledger-table");
+    if (!L) {
+      stats.innerHTML = "";
+      box.innerHTML = '<div class="empty">Raporu görmek için bir ürün veya hammadde seçin.</div>';
+      return;
+    }
+    const u = esc(L.item.unit);
+    const sub = qty => ledgerCases(L, qty) ? `<div class="case">= ${esc(ledgerCases(L, qty))}</div>` : "";
+
+    stats.innerHTML = `
+      <div class="card stat"><span class="muted">Dönem başı devir</span><strong>${fmt(L.carry)} <small>${u}</small></strong>${sub(L.carry)}</div>
+      <div class="card stat"><span class="muted">Toplam giriş</span><strong style="color:#15803d">${fmt(L.totalIn)} <small>${u}</small></strong>${sub(L.totalIn)}</div>
+      <div class="card stat"><span class="muted">Toplam çıkış</span><strong style="color:#b91c1c">${fmt(L.totalOut)} <small>${u}</small></strong>${sub(L.totalOut)}</div>
+      <div class="card stat"><span class="muted">Dönem sonu bakiye</span><strong>${fmt(L.closing)} <small>${u}</small></strong>${sub(L.closing)}</div>`;
+
+    const rows = [
+      `<tr class="carry"><td>${esc(L.from ? fmtDate(L.from) : "-")}</td><td></td><td>Dönem başı devir</td><td></td><td></td><td></td>
+        <td class="num"></td><td class="num"></td><td class="num"><b>${fmt(L.carry)}</b></td></tr>`,
+      ...L.lines.map(l => `<tr>
+        <td class="nowrap">${esc(fmtDate(l.date))}</td><td class="nowrap">${esc(l.doc || "-")}</td><td>${esc(l.type)}</td>
+        <td>${l.lot ? lotTag(l.lot) : "-"}</td><td>${esc(l.note)}</td><td>${esc(l.by || "-")}</td>
+        <td class="num in">${l.in ? fmt(l.in) : ""}</td><td class="num out">${l.out ? fmt(l.out) : ""}</td>
+        <td class="num"><b>${fmt(l.balance)}</b>${L.kind === "p" && ledgerCases(L, l.balance) ? `<div class="lots">${esc(ledgerCases(L, l.balance))}</div>` : ""}</td>
+      </tr>`),
+      `<tr class="total"><td colspan="6">Dönem toplamı (${L.lines.length} hareket)</td>
+        <td class="num">${fmt(L.totalIn)}</td><td class="num">${fmt(L.totalOut)}</td><td class="num">${fmt(L.closing)}</td></tr>`
+    ];
+    box.innerHTML = `<div class="table-wrap"><table class="ledger-table">
+      <thead><tr><th>Tarih</th><th>Belge</th><th>Hareket</th><th>Parti</th><th>Açıklama</th><th>Kullanıcı</th>
+        <th class="num">Giriş (${u})</th><th class="num">Çıkış (${u})</th><th class="num">Bakiye (${u})</th></tr></thead>
+      <tbody>${rows.join("")}</tbody></table></div>`;
+  }
+
+  document.getElementById("ledger-item").addEventListener("change", () => { updateLedgerLots(); renderLedger(); });
+  ["ledger-from", "ledger-to", "ledger-lot"].forEach(elId =>
+    document.getElementById(elId).addEventListener("change", renderLedger));
+  document.getElementById("ledger-show").addEventListener("click", renderLedger);
+
+  document.getElementById("ledger-csv").addEventListener("click", () => {
+    const L = buildLedger();
+    if (!L) return alert("Önce bir ürün veya hammadde seçin.");
+    const cell = value => {
+      let text = String(value ?? "");
+      if (/^[=+\-@\t\r]/.test(text)) text = "'" + text;
+      return `"${text.replace(/"/g, '""')}"`;
+    };
+    const dec = value => value === "" ? "" : String(round(value)).replace(".", ",");
+    const lines = [
+      [`Stok hareket raporu: ${L.item.name} (${L.item.unit})`],
+      [`Dönem: ${L.from ? fmtDate(L.from) : "başlangıç"} - ${L.to ? fmtDate(L.to) : "bugün"}${L.lot ? " / Parti: " + L.lot : ""}`],
+      [],
+      ["Tarih", "Belge", "Hareket", "Parti", "Açıklama", "Kullanıcı", "Giriş", "Çıkış", "Bakiye"],
+      [L.from ? fmtDate(L.from) : "", "", "Dönem başı devir", "", "", "", "", "", dec(L.carry)],
+      ...L.lines.map(l => [fmtDate(l.date), l.doc, l.type, l.lot, l.note, l.by, l.in ? dec(l.in) : "", l.out ? dec(l.out) : "", dec(l.balance)]),
+      ["", "", "Dönem toplamı", "", "", "", dec(L.totalIn), dec(L.totalOut), dec(L.closing)]
+    ];
+    const csv = lines.map(r => r.map(cell).join(";")).join("\r\n");
+    const safeName = L.item.name.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "").slice(0, 40);
+    downloadBlob(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }), `stok-hareket-${safeName}-${today()}.csv`);
+  });
+
+  document.getElementById("ledger-pdf").addEventListener("click", () => {
+    const L = buildLedger();
+    if (!L) return alert("Önce bir ürün veya hammadde seçin.");
+    const w = window.open("", "_blank");
+    if (!w) return alert("Yazdırma penceresi engellendi. Tarayıcıda açılır pencerelere izin verin.");
+
+    const s = settings();
+    const u = esc(L.item.unit);
+    const contact = [s.address, s.phone, s.email].filter(Boolean).map(esc).join(" · ");
+    const cs = qty => ledgerCases(L, qty) ? `<div class="cs">= ${esc(ledgerCases(L, qty))}</div>` : "";
+    const period = `${L.from ? fmtDate(L.from) : "Başlangıç"} – ${L.to ? fmtDate(L.to) : fmtDate(today())}`;
+
+    w.document.open();
+    w.document.write(`<!DOCTYPE html>
+<html lang="tr"><head><meta charset="UTF-8">
+<title>Stok Hareket Raporu - ${esc(L.item.name)}</title>
+<style>
+  @page { size: A4; margin: 12mm; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; background: #e2e8f0; color: #1e293b; font: 9pt/1.4 Arial, Helvetica, sans-serif; }
+  .page { width: 210mm; min-height: 297mm; margin: 20px auto; padding: 12mm; background: #fff; box-shadow: 0 4px 24px rgba(15,23,42,.15); }
+  @media print { body { background: #fff; } .page { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; } }
+  .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding-bottom: 10px; border-bottom: 3px solid #182857; }
+  .company { margin-top: 6px; font-size: 8.5pt; color: #475569; }
+  .company b { color: #0f172a; font-size: 9.5pt; }
+  .doc { text-align: right; }
+  .doc h1 { margin: 0; font-size: 16pt; letter-spacing: .06em; color: #182857; }
+  .doc .sub { margin: 2px 0 8px; font-size: 8pt; color: #64748b; text-transform: uppercase; letter-spacing: .04em; }
+  .meta { margin-left: auto; border-collapse: collapse; }
+  .meta td { border: 1px solid #cbd5e1; padding: 3px 8px; text-align: left; }
+  .meta td:first-child { background: #f1f5f9; color: #475569; }
+  .accent { height: 2px; background: #25b360; margin-top: 2px; }
+  .sum { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 14px 0; }
+  .box { border: 1px solid #e2e8f0; border-top: 3px solid #182857; border-radius: 4px; padding: 7px 9px; }
+  .box.in { border-top-color: #25b360; } .box.out { border-top-color: #b91c1c; }
+  .box .t { font-size: 7.5pt; color: #64748b; text-transform: uppercase; letter-spacing: .05em; }
+  .box .n { font-size: 14pt; font-weight: bold; } .box .n small { font-size: 8pt; color: #64748b; font-weight: normal; }
+  .cs { font-size: 7.5pt; color: #475569; }
+  table.l { width: 100%; border-collapse: collapse; }
+  table.l th { background: #182857; color: #fff; padding: 5px 6px; text-align: left; font-size: 7.5pt; text-transform: uppercase; letter-spacing: .04em; }
+  table.l td { padding: 4px 6px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  table.l tr:nth-child(even) td { background: #f8fafc; }
+  table.l .r { text-align: right; white-space: nowrap; }
+  table.l .in { color: #15803d; font-weight: bold; } table.l .out { color: #b91c1c; font-weight: bold; }
+  table.l tr.carry td { font-style: italic; background: #f1f5f9; }
+  table.l tr.total td { font-weight: bold; background: #e8f7ee; border-top: 2px solid #25b360; }
+  thead { display: table-header-group; } tr { page-break-inside: avoid; }
+  .foot { margin-top: 14px; padding-top: 6px; border-top: 1px solid #cbd5e1; display: flex; justify-content: space-between; font-size: 7.5pt; color: #64748b; }
+</style></head>
+<body><div class="page">
+  <div class="head">
+    <div>${logoHtml(70)}<div class="company"><b>${esc(s.companyName)}</b>${s.companySubtitle ? "<br>" + esc(s.companySubtitle) : ""}${contact ? "<br>" + contact : ""}</div></div>
+    <div class="doc">
+      <h1>STOK HAREKET RAPORU</h1>
+      <div class="sub">Girdi / çıktı ekstresi</div>
+      <table class="meta">
+        <tr><td>${L.kind === "p" ? "Ürün" : "Hammadde"}</td><td><b>${esc(L.item.name)}</b></td></tr>
+        <tr><td>Birim</td><td>${u}${L.kind === "p" && num(L.item.perCase) > 0 ? ` (1 koli = ${fmt(L.item.perCase)} ${u})` : ""}</td></tr>
+        <tr><td>Dönem</td><td>${esc(period)}</td></tr>
+        ${L.lot ? `<tr><td>Parti</td><td>${esc(L.lot)}</td></tr>` : ""}
+      </table>
+    </div>
+  </div>
+  <div class="accent"></div>
+
+  <div class="sum">
+    <div class="box"><div class="t">Dönem başı devir</div><div class="n">${fmt(L.carry)} <small>${u}</small></div>${cs(L.carry)}</div>
+    <div class="box in"><div class="t">Toplam giriş</div><div class="n">${fmt(L.totalIn)} <small>${u}</small></div>${cs(L.totalIn)}</div>
+    <div class="box out"><div class="t">Toplam çıkış</div><div class="n">${fmt(L.totalOut)} <small>${u}</small></div>${cs(L.totalOut)}</div>
+    <div class="box"><div class="t">Dönem sonu bakiye</div><div class="n">${fmt(L.closing)} <small>${u}</small></div>${cs(L.closing)}</div>
+  </div>
+
+  <table class="l">
+    <thead><tr><th>Tarih</th><th>Belge</th><th>Hareket</th><th>Parti</th><th>Açıklama</th><th>Kullanıcı</th><th class="r">Giriş</th><th class="r">Çıkış</th><th class="r">Bakiye</th></tr></thead>
+    <tbody>
+      <tr class="carry"><td>${esc(L.from ? fmtDate(L.from) : "")}</td><td></td><td>Dönem başı devir</td><td></td><td></td><td></td><td></td><td></td><td class="r">${fmt(L.carry)}</td></tr>
+      ${L.lines.map(l => `<tr><td>${esc(fmtDate(l.date))}</td><td>${esc(l.doc || "-")}</td><td>${esc(l.type)}</td><td>${esc(l.lot || "-")}</td>
+        <td>${esc(l.note)}</td><td>${esc(l.by || "-")}</td><td class="r in">${l.in ? fmt(l.in) : ""}</td><td class="r out">${l.out ? fmt(l.out) : ""}</td><td class="r"><b>${fmt(l.balance)}</b></td></tr>`).join("")}
+      <tr class="total"><td colspan="6">Dönem toplamı (${L.lines.length} hareket)</td><td class="r">${fmt(L.totalIn)}</td><td class="r">${fmt(L.totalOut)}</td><td class="r">${fmt(L.closing)}</td></tr>
+    </tbody>
+  </table>
+
+  <div class="foot">
+    <div>${esc(s.companyName)} · Bu rapor Üretim ve Depo Takip sistemi tarafından oluşturulmuştur.</div>
+    <div>${s.docCode ? "Doküman no: " + esc(s.docCode) + " · " : ""}Rapor tarihi: ${esc(new Date().toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" }))}${currentUser ? " · " + esc(currentUser.name) : ""}</div>
+  </div>
+</div>
+<script>window.onload = function () { window.focus(); setTimeout(function () { window.print(); }, 500); };<\/script>
+</body></html>`);
+    w.document.close();
+  });
+
   document.getElementById("trace-btn").addEventListener("click", renderTrace);
   document.getElementById("trace-lot").addEventListener("keydown", event => {
     if (event.key === "Enter") renderTrace();
@@ -1893,6 +2255,8 @@
     renderDashboard();
     renderReport();
     renderTrace();
+    updateLedgerOptions();
+    renderLedger();
     renderSettings();
     renderUsers();
     renderAdminAlerts();
@@ -2091,6 +2455,7 @@
   const roleText = u => u.role === "admin" ? "Yönetici" : "Kullanıcı";
 
   function showAuth(mode) {
+    renderBranding();
     document.body.classList.add("locked");
     document.getElementById("auth-screen").classList.remove("hidden");
     document.getElementById("auth-logo").src = settings().logo || DEFAULT_LOGO;
