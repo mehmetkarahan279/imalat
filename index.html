@@ -31,6 +31,13 @@
   .badge.admin { background: #dbeafe; color: #1e40af; }
   .badge.user { background: #f1f5f9; color: #475569; }
   .badge.off { background: #fee2e2; color: #b91c1c; }
+  .badge.lock { background: #fef3c7; color: #92400e; }
+  .alert-box { background: #fff7ed; border: 1px solid #fdba74; border-left: 5px solid #ea580c; border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; }
+  .alert-box h3 { margin: 0 0 6px; font-size: 15px; color: #9a3412; }
+  .alert-box ul { margin: 0 0 8px; padding-left: 20px; }
+  .alert-box li { margin: 3px 0; }
+  .nav-count { display: inline-block; min-width: 20px; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: #ea580c; color: white; font-size: 12px; font-weight: bold; }
+  .error.warn { color: #b45309; }
   header p { margin: 0; color: #cbd5e1; }
   main { max-width: 1200px; margin: 22px auto; padding: 0 16px; }
   nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
@@ -140,6 +147,7 @@
 </header>
 
 <main>
+  <div id="admin-alerts"></div>
   <nav>
     <button class="active" data-tab="dashboard">Genel Bakış</button>
     <button data-tab="materials">Hammaddeler</button>
@@ -422,7 +430,10 @@
           </div>
         </form>
       </div>
-      <div class="panel"><h2>Kullanıcı Listesi</h2><div id="users-table"></div></div>
+      <div>
+        <div class="panel"><h2>Kullanıcı Listesi</h2><div id="users-table"></div></div>
+        <div class="panel"><h2>Bloke Bildirimleri</h2><div id="lock-log"></div></div>
+      </div>
     </div>
   </section>
 </main>
@@ -594,6 +605,7 @@
 
   function migrateAll() {
     if (!Array.isArray(db.users)) db.users = [];
+    if (!Array.isArray(db.notifications)) db.notifications = [];
     migrateSlipNumbers();
     db.materials.forEach(ensureLots);
     db.products.forEach(ensureLots);
@@ -1883,6 +1895,7 @@
     renderTrace();
     renderSettings();
     renderUsers();
+    renderAdminAlerts();
   }
 
   function renderDashboard() {
@@ -2106,6 +2119,7 @@
   function applyPermissions() {
     document.querySelectorAll("nav button").forEach(b => b.classList.toggle("hidden", !canTab(b.dataset.tab)));
     document.querySelectorAll(".admin-only").forEach(el => el.classList.toggle("hidden", !isAdmin()));
+    renderAdminAlerts();
     document.getElementById("user-bar").innerHTML = currentUser ? `
       <span><b>${esc(currentUser.name)}</b></span>
       <span class="role">${roleText(currentUser)}</span>
@@ -2147,6 +2161,103 @@
     enterApp(user);
   });
 
+  // --- Hatalı şifre blokesi ---
+  // Kullanıcı: 3 hatalı denemede bloke olur, yalnızca yönetici kaldırır.
+  // Yönetici: kimse dışarıda kalmasın diye 15 dakikalık geçici bloke alır.
+  const MAX_ATTEMPTS = 3;
+  const ADMIN_LOCK_MINUTES = 15;
+  const nowText = () => new Date().toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" });
+
+  // Süresi dolan geçici blokeyi kaldırır; hesap hâlâ blokeliyse true döner.
+  function isLocked(user) {
+    if (!user.locked) return false;
+    if (user.lockUntil && Date.now() >= user.lockUntil) {
+      unlockUser(user, "Süre doldu");
+      save();
+      return false;
+    }
+    return true;
+  }
+
+  function unlockUser(user, by) {
+    user.locked = false;
+    user.failedAttempts = 0;
+    delete user.lockUntil;
+    delete user.lockedAt;
+    (db.notifications || []).filter(n => n.userId === user.id && !n.resolved).forEach(n => {
+      n.resolved = true;
+      n.resolvedBy = by;
+      n.resolvedAt = nowText();
+    });
+  }
+
+  function notifyAdmins(user) {
+    db.notifications ||= [];
+    db.notifications.unshift({
+      id: id(),
+      type: "lock",
+      userId: user.id,
+      userName: user.name,
+      username: user.username,
+      role: user.role,
+      at: nowText(),
+      temporary: !!user.lockUntil,
+      read: false,
+      resolved: false
+    });
+    db.notifications = db.notifications.slice(0, 200);
+  }
+
+  function registerFailure(user) {
+    user.failedAttempts = num(user.failedAttempts) + 1;
+    user.lastFailedAt = nowText();
+    if (user.failedAttempts < MAX_ATTEMPTS) return MAX_ATTEMPTS - user.failedAttempts;
+
+    user.locked = true;
+    user.lockedAt = nowText();
+    if (user.role === "admin") user.lockUntil = Date.now() + ADMIN_LOCK_MINUTES * 60000;
+    notifyAdmins(user);
+    return 0;
+  }
+
+  function lockMessage(user) {
+    if (user.lockUntil) {
+      const minutes = Math.max(1, Math.ceil((user.lockUntil - Date.now()) / 60000));
+      return `Hesabınız ${MAX_ATTEMPTS} hatalı şifre denemesi nedeniyle geçici olarak bloke edildi. ${minutes} dakika sonra tekrar deneyin. Durum diğer yöneticilere bildirildi.`;
+    }
+    return `Hesabınız ${MAX_ATTEMPTS} hatalı şifre denemesi nedeniyle bloke edildi. Durum yöneticiye bildirildi; blokenin kaldırılması için yöneticinize başvurun.`;
+  }
+
+  const unreadLocks = () => (db.notifications || []).filter(n => !n.resolved && !n.read);
+
+  function renderAdminAlerts() {
+    const box = document.getElementById("admin-alerts");
+    const usersButton = document.querySelector('nav button[data-tab="users"]');
+    const pending = isAdmin() ? (db.notifications || []).filter(n => !n.resolved && byId(db.users, n.userId)?.locked) : [];
+
+    usersButton.innerHTML = "Kullanıcılar" + (pending.length ? `<span class="nav-count">${pending.length}</span>` : "");
+
+    const unread = isAdmin() ? unreadLocks() : [];
+    box.innerHTML = unread.length ? `<div class="alert-box">
+        <h3>Güvenlik bildirimi: bloke olan hesap${unread.length > 1 ? "lar" : ""}</h3>
+        <ul>${unread.map(n => `<li><b>${esc(n.userName)}</b> (${esc(n.username)}) — ${esc(n.at)} tarihinde ${MAX_ATTEMPTS} hatalı şifre denemesi nedeniyle
+          ${n.temporary ? `${ADMIN_LOCK_MINUTES} dakikalığına` : ""} bloke oldu.</li>`).join("")}</ul>
+        <div class="button-row" style="margin:0">
+          <button type="button" class="primary" id="alerts-go-users">Kullanıcılara git</button>
+          <button type="button" class="secondary" id="alerts-dismiss">Okundu olarak işaretle</button>
+        </div>
+      </div>` : "";
+  }
+
+  document.getElementById("admin-alerts").addEventListener("click", event => {
+    if (event.target.id === "alerts-go-users") showTab("users");
+    if (event.target.id === "alerts-dismiss") {
+      unreadLocks().forEach(n => { n.read = true; });
+      save();
+      renderAdminAlerts();
+    }
+  });
+
   document.getElementById("login-form").addEventListener("submit", async event => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -2154,19 +2265,38 @@
     const error = document.getElementById("login-error");
     error.textContent = "";
 
+    error.classList.remove("warn");
     const user = findUser(f.get("username").trim());
-    const ok = user && await checkPassword(user, f.get("password"));
-    if (!ok) {
+    const clearPassword = () => { form.password.value = ""; form.password.focus(); };
+
+    if (!user) {
       error.textContent = "Kullanıcı adı veya şifre hatalı.";
-      form.password.value = "";
-      form.password.focus();
-      return;
+      return clearPassword();
     }
+    if (isLocked(user)) {
+      error.textContent = lockMessage(user);
+      return clearPassword();
+    }
+
+    if (!(await checkPassword(user, f.get("password")))) {
+      const left = registerFailure(user);
+      save();
+      if (left > 0) {
+        error.classList.add("warn");
+        error.textContent = `Şifre hatalı. Kalan deneme hakkınız: ${left}. ${MAX_ATTEMPTS} hatalı denemede hesabınız bloke edilir.`;
+      } else {
+        error.textContent = lockMessage(user);
+        alert(lockMessage(user));
+      }
+      return clearPassword();
+    }
+
     if (user.active === false) {
       error.textContent = "Bu hesap pasif. Yöneticinize başvurun.";
       return;
     }
-    user.lastLogin = new Date().toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" });
+    user.failedAttempts = 0;
+    user.lastLogin = nowText();
     save();
     form.reset();
     enterApp(user);
@@ -2198,14 +2328,26 @@
     if (!user) return;
     if (!own && !isAdmin()) return;
 
-    if (own && !(await checkPassword(user, form.current.value))) return (error.textContent = "Mevcut şifre hatalı.");
+    if (own && !(await checkPassword(user, form.current.value))) {
+      const left = registerFailure(user);
+      save();
+      if (left > 0) return (error.textContent = `Mevcut şifre hatalı. Kalan deneme hakkınız: ${left}.`);
+      document.getElementById("password-dialog").close();
+      alert(lockMessage(user) + " Oturumunuz kapatılıyor.");
+      return logout();
+    }
     if (form.password.value.length < 6) return (error.textContent = "Yeni şifre en az 6 karakter olmalı.");
     if (form.password.value !== form.password2.value) return (error.textContent = "Yeni şifreler aynı değil.");
 
     Object.assign(user, await makePassword(form.password.value));
+    if (own) user.failedAttempts = 0;
+    const wasLocked = !own && user.locked;
+    if (!own) unlockUser(user, actor());
     if (!save()) return;
     document.getElementById("password-dialog").close();
-    alert(own ? "Şifreniz değiştirildi." : `${user.name} kullanıcısının şifresi kaydedildi.`);
+    renderUsers();
+    renderAdminAlerts();
+    alert(own ? "Şifreniz değiştirildi." : `${user.name} kullanıcısının şifresi kaydedildi.${wasLocked ? " Hesap blokesi de kaldırıldı." : ""}`);
   });
 
   // --- Kullanıcı yönetimi (yalnızca yönetici) ---
@@ -2293,6 +2435,15 @@
 
     if (action === "password") return openPasswordDialog(user, false);
 
+    if (action === "unlock") {
+      if (!confirm(`“${user.name}” kullanıcısının blokesi kaldırılsın mı? Şifre de unutulduysa “Şifre belirle” ile yeni şifre verebilirsiniz.`)) return;
+      unlockUser(user, actor());
+      save();
+      renderUsers();
+      renderAdminAlerts();
+      return alert("Bloke kaldırıldı. Kullanıcı yeniden giriş yapabilir.");
+    }
+
     if (action === "toggle") {
       const deactivating = user.active !== false;
       if (deactivating && user.id === currentUser.id) return alert("Kendi hesabınızı pasif yapamazsınız.");
@@ -2313,18 +2464,29 @@
 
   function renderUsers() {
     if (!isAdmin()) return;
+    document.getElementById("lock-log").innerHTML = table(
+      ["Tarih", "Kullanıcı", "Durum"],
+      (db.notifications || []).slice(0, 50).map(n => `<tr>
+        <td class="nowrap">${esc(n.at)}</td>
+        <td>${esc(n.userName)} <span class="muted">(${esc(n.username)})</span></td>
+        <td>${n.resolved ? `Kaldırıldı — ${esc(n.resolvedBy || "")} ${esc(n.resolvedAt || "")}` : `<span class="badge lock">Bloke${n.temporary ? " (geçici)" : ""}</span>`}</td>
+      </tr>`)
+    );
     const labels = Object.fromEntries(PERMISSIONS);
     document.getElementById("users-table").innerHTML = table(
       ["Ad soyad", "Kullanıcı adı", "Rol", "Yetkiler", "Son giriş", "İşlem"],
       db.users.map(u => `<tr>
         <td>${esc(u.name)}${u.id === currentUser.id ? ' <span class="muted">(siz)</span>' : ""}
-          ${u.active === false ? '<br><span class="badge off">Pasif</span>' : ""}</td>
+          ${u.active === false ? '<br><span class="badge off">Pasif</span>' : ""}
+          ${isLocked(u) ? `<br><span class="badge lock">Bloke${u.lockUntil ? " (geçici)" : ""}</span> <span class="muted">${esc(u.lockedAt || "")}</span>`
+            : num(u.failedAttempts) ? `<br><span class="muted">Hatalı deneme: ${num(u.failedAttempts)}/${MAX_ATTEMPTS}</span>` : ""}</td>
         <td>${esc(u.username)}</td>
         <td><span class="badge ${u.role === "admin" ? "admin" : "user"}">${roleText(u)}</span></td>
         <td class="recipe-cell">${u.role === "admin" ? "Tüm bölümler" : (u.perms || []).map(p => esc(labels[p] || p)).join(", ") || "Yalnızca Genel Bakış"}</td>
         <td class="nowrap">${esc(u.lastLogin || "-")}</td>
         <td><div class="actions-cell">
           <button type="button" class="secondary" data-user-action="edit" data-id="${esc(u.id)}">Düzenle</button>
+          ${isLocked(u) ? `<button type="button" class="primary" data-user-action="unlock" data-id="${esc(u.id)}">Blokeyi kaldır</button>` : ""}
           <button type="button" class="secondary" data-user-action="password" data-id="${esc(u.id)}">Şifre belirle</button>
           ${u.id === currentUser.id ? "" : `<button type="button" class="${u.active === false ? "secondary" : "danger"}" data-user-action="toggle" data-id="${esc(u.id)}">${u.active === false ? "Aktifleştir" : "Pasif yap"}</button>
           <button type="button" class="danger" data-user-action="delete" data-id="${esc(u.id)}">Sil</button>`}
