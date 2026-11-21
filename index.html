@@ -8,7 +8,29 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: #f4f6fa; color: #1e293b; font: 15px Arial, sans-serif; }
   header { background: #172554; color: white; padding: 20px max(16px, calc((100% - 1200px)/2)); }
+  header { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
   header h1 { margin: 0 0 5px; font-size: 23px; }
+  .user-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; color: #e2e8f0; }
+  .user-bar b { color: white; }
+  .user-bar .role { background: #1e3a8a; color: #bfdbfe; border-radius: 999px; padding: 2px 9px; font-size: 12px; }
+  .user-bar button { background: #1e3a8a; color: white; padding: 7px 11px; }
+  .user-bar button:hover { background: #2563eb; }
+  body.locked header, body.locked main { display: none; }
+  .auth { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: #f4f6fa; z-index: 50; }
+  .auth-card { width: min(400px, 100%); background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 26px; box-shadow: 0 10px 30px rgba(15,23,42,.08); }
+  .auth-card img { display: block; height: 70px; margin: 0 auto 10px; }
+  .auth-card h1 { text-align: center; font-size: 20px; margin: 0 0 4px; }
+  .auth-card > p { text-align: center; margin: 0 0 8px; }
+  .auth-card button.primary { width: 100%; margin-top: 16px; padding: 11px; }
+  .error { color: #b91c1c; font-size: 13px; margin-top: 10px; min-height: 18px; }
+  .perm-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin-top: 4px; }
+  .perm-list label { display: flex; align-items: center; gap: 6px; font-weight: normal; margin: 0; font-size: 14px; }
+  .perm-list input, .check input { width: auto; }
+  .check { display: flex; align-items: center; gap: 6px; font-weight: normal; }
+  .badge { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: bold; }
+  .badge.admin { background: #dbeafe; color: #1e40af; }
+  .badge.user { background: #f1f5f9; color: #475569; }
+  .badge.off { background: #fee2e2; color: #b91c1c; }
   header p { margin: 0; color: #cbd5e1; }
   main { max-width: 1200px; margin: 22px auto; padding: 0 16px; }
   nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
@@ -76,11 +98,45 @@
   }
 </style>
 </head>
-<body>
+<body class="locked">
+
+<div id="auth-screen" class="auth hidden">
+  <div class="auth-card">
+    <img id="auth-logo" alt="Logo">
+    <h1>Üretim ve Depo Takip</h1>
+    <p class="muted" id="auth-subtitle">Devam etmek için giriş yapın</p>
+
+    <form id="login-form" class="hidden" autocomplete="on">
+      <label>Kullanıcı adı</label>
+      <input name="username" autocomplete="username" required>
+      <label>Şifre</label>
+      <input name="password" type="password" autocomplete="current-password" required>
+      <button class="primary">Giriş yap</button>
+      <div class="error" id="login-error"></div>
+    </form>
+
+    <form id="setup-form" class="hidden" autocomplete="off">
+      <div class="notice">İlk kurulum: sistemi yönetecek <b>yönetici (admin)</b> hesabını oluşturun. Mevcut verileriniz korunur.</div>
+      <label>Ad soyad</label>
+      <input name="name" required placeholder="Örn. Mehmet Kaya">
+      <label>Kullanıcı adı</label>
+      <input name="username" required autocomplete="username" placeholder="Örn. admin">
+      <label>Şifre (en az 6 karakter)</label>
+      <input name="password" type="password" required autocomplete="new-password">
+      <label>Şifre tekrar</label>
+      <input name="password2" type="password" required autocomplete="new-password">
+      <button class="primary">Yönetici hesabını oluştur</button>
+      <div class="error" id="setup-error"></div>
+    </form>
+  </div>
+</div>
 
 <header>
-  <h1>Üretim ve Depo Takip</h1>
-  <p>Kağıt bardak ve tabak imalatı</p>
+  <div>
+    <h1>Üretim ve Depo Takip</h1>
+    <p>Kağıt bardak ve tabak imalatı</p>
+  </div>
+  <div class="user-bar" id="user-bar"></div>
 </header>
 
 <main>
@@ -92,6 +148,7 @@
     <button data-tab="warehouse">Depo Hareketi</button>
     <button data-tab="reports">Raporlar</button>
     <button data-tab="history">Kayıtlar</button>
+    <button data-tab="users" class="hidden">Kullanıcılar</button>
   </nav>
 
   <section id="dashboard" class="tab">
@@ -288,7 +345,7 @@
   <section id="history" class="tab hidden">
     <div class="panel"><h2>Üretim Kayıtları</h2><div id="production-table"></div></div>
     <div class="panel"><h2>Depo Hareketleri</h2><div id="movements-table"></div></div>
-    <div class="panel">
+    <div class="panel admin-only">
       <h2>Firma bilgileri ve fiş görünümü</h2>
       <p class="muted">Bu bilgiler PDF üretim fişinin başlığında ve alt bilgisinde kullanılır.</p>
       <form id="settings-form">
@@ -322,7 +379,7 @@
         </div>
       </form>
     </div>
-    <div class="panel">
+    <div class="panel admin-only">
       <h2>Yedekleme ve sıfırlama</h2>
       <p class="muted">Veriler bu tarayıcıda saklanır. Düzenli olarak yedek alın.</p>
       <div class="button-row">
@@ -333,7 +390,62 @@
       </div>
     </div>
   </section>
+
+  <section id="users" class="tab hidden">
+    <div class="grid side">
+      <div class="panel">
+        <h2 id="user-form-title">Kullanıcı Ekle</h2>
+        <form id="user-form" autocomplete="off">
+          <input type="hidden" name="id">
+          <label>Ad soyad</label>
+          <input name="name" required placeholder="Örn. Ahmet Yılmaz">
+          <label>Kullanıcı adı</label>
+          <input name="username" required placeholder="Örn. ahmet" autocomplete="off">
+          <div id="user-password-wrap">
+            <label>Şifre (en az 6 karakter)</label>
+            <input name="password" type="password" autocomplete="new-password">
+          </div>
+          <label>Rol</label>
+          <select name="role">
+            <option value="user">Kullanıcı</option>
+            <option value="admin">Yönetici (tüm yetkiler)</option>
+          </select>
+          <div id="perm-wrap">
+            <label>Yetkili olduğu bölümler</label>
+            <div class="perm-list" id="perm-list"></div>
+            <p class="muted">Genel Bakış tüm kullanıcılara açıktır.</p>
+          </div>
+          <label class="check"><input type="checkbox" name="active" checked> Hesap aktif</label>
+          <div class="form-actions">
+            <button class="primary" id="user-submit">Kullanıcıyı Kaydet</button>
+            <button type="button" class="secondary hidden" id="user-cancel-edit">Vazgeç</button>
+          </div>
+        </form>
+      </div>
+      <div class="panel"><h2>Kullanıcı Listesi</h2><div id="users-table"></div></div>
+    </div>
+  </section>
 </main>
+
+<dialog id="password-dialog">
+  <form id="password-form" autocomplete="off">
+    <h2 id="password-title">Şifre belirle</h2>
+    <input type="hidden" name="userId">
+    <div id="current-password-wrap">
+      <label>Mevcut şifre</label>
+      <input name="current" type="password" autocomplete="current-password">
+    </div>
+    <label>Yeni şifre (en az 6 karakter)</label>
+    <input name="password" type="password" required autocomplete="new-password">
+    <label>Yeni şifre tekrar</label>
+    <input name="password2" type="password" required autocomplete="new-password">
+    <div class="error" id="password-error"></div>
+    <div class="form-actions">
+      <button type="button" class="secondary" id="password-cancel">Vazgeç</button>
+      <button class="primary">Şifreyi kaydet</button>
+    </div>
+  </form>
+</dialog>
 
 <script>
   const STORAGE_KEY = "uretim_depo_takip_v1";
@@ -481,6 +593,7 @@
   }
 
   function migrateAll() {
+    if (!Array.isArray(db.users)) db.users = [];
     migrateSlipNumbers();
     db.materials.forEach(ensureLots);
     db.products.forEach(ensureLots);
@@ -573,14 +686,15 @@
     </table></div>`;
   }
 
+  function showTab(tab) {
+    if (!canTab(tab)) tab = "dashboard";
+    document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+    document.querySelectorAll(".tab").forEach(section => section.classList.toggle("hidden", section.id !== tab));
+    render();
+  }
+
   document.querySelectorAll("nav button").forEach(button => {
-    button.addEventListener("click", () => {
-      document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
-      document.querySelectorAll(".tab").forEach(section => section.classList.add("hidden"));
-      button.classList.add("active");
-      document.getElementById(button.dataset.tab).classList.remove("hidden");
-      render();
-    });
+    button.addEventListener("click", () => showTab(button.dataset.tab));
   });
 
   function cardActions(kind, item) {
@@ -870,6 +984,7 @@
 
     const count = {
       id: id(),
+      by: actor(),
       no: nextSlipNo(),
       date: f.get("date"),
       productId: product.id,
@@ -901,6 +1016,7 @@
 
         db.movements.unshift({
           id: id(),
+          by: actor(),
           countId: count.id,
           date: count.date,
           type: "Üretimde hammadde tüketimi",
@@ -921,6 +1037,7 @@
     // Üretim kaydını oluştur.
     db.production.unshift({
       id: id(),
+      by: actor(),
       countId: count.id,
       countNo: count.no,
       lot: count.lot,
@@ -944,6 +1061,7 @@
     if (good > 0) {
       db.movements.unshift({
         id: id(),
+        by: actor(),
         countId: count.id,
         date: count.date,
         type: "Üretimden ürün girişi",
@@ -971,6 +1089,7 @@
   // Hatalı girilen bir üretim fişini geri al: hammaddeyi iade et, sağlam ürünü stoktan düş.
   function cancelCount(count) {
     if (count.cancelled) return;
+    if (!can("cancelSlip")) return alert("Fiş iptali için yetkiniz yok.");
 
     const product = byId(db.products, count.productId);
     if (!product) {
@@ -1006,6 +1125,7 @@
       addLot(r.material, lot, num(r.movement.quantity), r.movement.lotDate ?? "");
       db.movements.unshift({
         id: id(),
+        by: actor(),
         countId: count.id,
         date,
         type: "Üretim iptali - hammadde iadesi",
@@ -1022,6 +1142,7 @@
       takeLot(product, productLot, num(count.good));
       db.movements.unshift({
         id: id(),
+        by: actor(),
         countId: count.id,
         date,
         type: "Üretim iptali - mamul düşüşü",
@@ -1036,6 +1157,7 @@
 
     count.cancelled = true;
     count.cancelledAt = date;
+    count.cancelledBy = actor();
     db.production.filter(p => p.countId === count.id).forEach(p => { p.cancelled = true; });
 
     save();
@@ -1199,7 +1321,7 @@
   <div class="spacer"></div>
   <div class="foot">
     <div>${esc(s.companyName)}${contact ? " · " + contact : ""}<br>Bu belge Üretim ve Depo Takip sistemi tarafından oluşturulmuştur.</div>
-    <div class="right">${s.docCode ? `Doküman no: ${esc(s.docCode)}<br>` : ""}Yazdırma: ${esc(printedAt)}</div>
+    <div class="right">${s.docCode ? `Doküman no: ${esc(s.docCode)}<br>` : ""}${count.by ? `Kaydeden: ${esc(count.by)}<br>` : ""}Yazdırma: ${esc(printedAt)}${currentUser ? ` (${esc(currentUser.name)})` : ""}</div>
   </div>
 </div>
 <script>
@@ -1420,6 +1542,7 @@
     allocations.forEach(a => {
       db.movements.unshift({
         id: id(),
+        by: actor(),
         date: f.get("date"),
         type: type === "material_in" ? "Hammadde girişi" : "Mamul sevkiyatı",
         itemId: item.id,
@@ -1634,9 +1757,8 @@
   // Herhangi bir tablodaki parti etiketine tıklayınca o partiyi izle.
   document.addEventListener("click", event => {
     const tag = event.target.closest(".trace-link");
-    if (!tag) return;
-    document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.tab === "reports"));
-    document.querySelectorAll(".tab").forEach(section => section.classList.toggle("hidden", section.id !== "reports"));
+    if (!tag || !canTab("reports")) return;
+    showTab("reports");
     document.getElementById("trace-lot").value = tag.dataset.lot;
     renderTrace();
     document.getElementById("trace-lot").scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1730,7 +1852,7 @@
         <td>${c.cancelled ? `İptal edildi (${esc(c.cancelledAt || "")})` : c.processed ? "Üretime işlendi" : "Bekliyor"}</td>
         <td><div class="card-actions">
           <button type="button" class="secondary print-count" data-id="${esc(c.id)}">PDF yazdır</button>
-          ${c.cancelled ? "" : `<button type="button" class="danger cancel-count" data-id="${esc(c.id)}">Fişi iptal et</button>`}
+          ${c.cancelled || !can("cancelSlip") ? "" : `<button type="button" class="danger cancel-count" data-id="${esc(c.id)}">Fişi iptal et</button>`}
         </div></td>
       </tr>`)
     );
@@ -1748,11 +1870,11 @@
     );
 
     document.getElementById("movements-table").innerHTML = table(
-      ["Tarih", "Hareket", "Malzeme / ürün", "Parti", "Miktar", "Açıklama"],
+      ["Tarih", "Hareket", "Malzeme / ürün", "Parti", "Miktar", "Kullanıcı", "Açıklama"],
       db.movements.map(m => `<tr>
         <td>${esc(m.date)}</td><td>${esc(m.type)}</td><td>${esc(m.item)}</td>
         <td>${m.lot ? lotTag(m.lot) : "-"}</td>
-        <td>${fmt(m.quantity)} ${esc(m.unit)}</td><td>${esc(m.note)}</td>
+        <td>${fmt(m.quantity)} ${esc(m.unit)}</td><td>${esc(m.by || "-")}</td><td>${esc(m.note)}</td>
       </tr>`)
     );
 
@@ -1760,6 +1882,7 @@
     renderReport();
     renderTrace();
     renderSettings();
+    renderUsers();
   }
 
   function renderDashboard() {
@@ -1832,11 +1955,21 @@
 
       if (!confirm("Mevcut tüm veriler bu yedekteki verilerle değiştirilecek. Devam edilsin mi?")) return;
 
+      if (!isAdmin()) return alert("Yedekten geri yükleme yalnızca yöneticiye açıktır.");
       keys.forEach(k => { db[k] = Array.isArray(data[k]) ? data[k] : []; });
+      // Yedekte kullanıcı listesi varsa onu kullan; yoksa mevcut kullanıcılar korunur.
+      if (Array.isArray(data.users) && data.users.some(u => u.role === "admin")) db.users = data.users;
       db.slipSeq = num(data.slipSeq);
       db.settings = data.settings && typeof data.settings === "object" && !Array.isArray(data.settings) ? data.settings : {};
       migrateAll();
       if (save()) {
+        if (!byId(db.users, currentUser.id)) {
+          alert("Yedek geri yüklendi. Yedekteki kullanıcı listesi geçerli olduğu için yeniden giriş yapın.");
+          logout();
+          return;
+        }
+        currentUser = byId(db.users, currentUser.id);
+        applyPermissions();
         render();
         alert("Yedek geri yüklendi.");
       }
@@ -1849,16 +1982,362 @@
   });
 
   document.getElementById("reset-all").addEventListener("click", () => {
-    if (!confirm("Tüm ürünler, hammaddeler, reçeteler, stoklar ve kayıtlar silinsin mi?")) return;
+    if (!isAdmin()) return;
+    if (!confirm("Tüm ürünler, hammaddeler, reçeteler, stoklar, kayıtlar ve kullanıcı hesapları silinsin mi?")) return;
     if (!confirm("Bu işlem geri alınamaz. Emin misiniz?")) return;
     localStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(SESSION_KEY);
     location.reload();
   });
+
+
+  // ================= Kullanıcı girişi ve yetkiler =================
+  // Not: Veriler bu tarayıcıda durduğu için giriş ekranı yetkisiz kullanımı engeller;
+  // tarayıcı geliştirici araçlarına erişen birine karşı tam güvenlik sağlamaz.
+  const SESSION_KEY = "uretim_depo_oturum";
+  const PERMISSIONS = [
+    ["materials", "Hammaddeler"],
+    ["products", "Ürünler"],
+    ["counting", "Vardiya Sayımı / Üretim"],
+    ["warehouse", "Depo Hareketi"],
+    ["reports", "Raporlar"],
+    ["history", "Kayıtlar"],
+    ["cancelSlip", "Üretim fişi iptali"]
+  ];
+  let currentUser = null;
+
+  const isAdmin = () => currentUser?.role === "admin";
+  const can = perm => !!currentUser && (isAdmin() || (currentUser.perms || []).includes(perm));
+  const canTab = tab => !!currentUser && (tab === "dashboard" || (tab === "users" ? isAdmin() : can(tab)));
+  const actor = () => currentUser?.name || "";
+  const activeAdmins = () => db.users.filter(u => u.role === "admin" && u.active !== false);
+
+  // --- Şifre özeti: PBKDF2 (WebCrypto), yoksa tuzlu ve yinelenmiş SHA-256 ---
+  function sha256Hex(text) {
+    const K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+    const bytes = new TextEncoder().encode(text);
+    const bitLen = bytes.length * 8;
+    const padded = new Uint8Array(((bytes.length + 9 + 63) >> 6) << 6);
+    padded.set(bytes);
+    padded[bytes.length] = 0x80;
+    const view = new DataView(padded.buffer);
+    view.setUint32(padded.length - 4, bitLen >>> 0);
+    view.setUint32(padded.length - 8, Math.floor(bitLen / 2 ** 32));
+    const H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+    const W = new Uint32Array(64);
+    const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+    for (let off = 0; off < padded.length; off += 64) {
+      for (let i = 0; i < 16; i++) W[i] = view.getUint32(off + i * 4);
+      for (let i = 16; i < 64; i++) {
+        const s0 = rotr(W[i-15], 7) ^ rotr(W[i-15], 18) ^ (W[i-15] >>> 3);
+        const s1 = rotr(W[i-2], 17) ^ rotr(W[i-2], 19) ^ (W[i-2] >>> 10);
+        W[i] = (W[i-16] + s0 + W[i-7] + s1) >>> 0;
+      }
+      let [a, b, c, d, e, f, g, h] = H;
+      for (let i = 0; i < 64; i++) {
+        const t1 = (h + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + W[i]) >>> 0;
+        const t2 = ((rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) >>> 0;
+        h = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+      }
+      [a, b, c, d, e, f, g, h].forEach((v, i) => { H[i] = (H[i] + v) >>> 0; });
+    }
+    return H.map(v => v.toString(16).padStart(8, "0")).join("");
+  }
+
+  const randomHex = (bytes = 16) =>
+    [...crypto.getRandomValues(new Uint8Array(bytes))].map(b => b.toString(16).padStart(2, "0")).join("");
+
+  async function derive(password, salt, algo) {
+    if (algo === "pbkdf2") {
+      const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+      const bits = await crypto.subtle.deriveBits(
+        { name: "PBKDF2", hash: "SHA-256", salt: new TextEncoder().encode(salt), iterations: 120000 }, key, 256);
+      return [...new Uint8Array(bits)].map(b => b.toString(16).padStart(2, "0")).join("");
+    }
+    let h = sha256Hex(salt + ":" + password);
+    for (let i = 0; i < 5000; i++) h = sha256Hex(h + salt);
+    return h;
+  }
+
+  async function makePassword(password) {
+    const salt = randomHex();
+    const algo = window.crypto?.subtle ? "pbkdf2" : "sha256i";
+    return { salt, algo, hash: await derive(password, salt, algo) };
+  }
+
+  async function checkPassword(user, password) {
+    if (user.algo === "pbkdf2" && !window.crypto?.subtle) {
+      alert("Bu tarayıcı ortamında şifre doğrulanamıyor. Dosyayı doğrudan (çift tıklayarak) açmayı deneyin.");
+      return false;
+    }
+    return (await derive(password, user.salt, user.algo)) === user.hash;
+  }
+
+  const findUser = username => db.users.find(u => normalize(u.username) === normalize(username));
+  const validUsername = name => /^[a-zA-Z0-9._-]{3,30}$/.test(name);
+  const roleText = u => u.role === "admin" ? "Yönetici" : "Kullanıcı";
+
+  function showAuth(mode) {
+    document.body.classList.add("locked");
+    document.getElementById("auth-screen").classList.remove("hidden");
+    document.getElementById("auth-logo").src = settings().logo || DEFAULT_LOGO;
+    document.getElementById("login-form").classList.toggle("hidden", mode !== "login");
+    document.getElementById("setup-form").classList.toggle("hidden", mode !== "setup");
+    document.getElementById("auth-subtitle").textContent =
+      mode === "setup" ? "Hoş geldiniz" : "Devam etmek için giriş yapın";
+    const first = document.querySelector(`#${mode}-form input`);
+    if (first) setTimeout(() => first.focus(), 0);
+  }
+
+  function enterApp(user) {
+    currentUser = user;
+    sessionStorage.setItem(SESSION_KEY, user.id);
+    document.getElementById("auth-screen").classList.add("hidden");
+    document.body.classList.remove("locked");
+    applyPermissions();
+    showTab("dashboard");
+  }
+
+  function logout() {
+    sessionStorage.removeItem(SESSION_KEY);
+    location.reload();
+  }
+
+  function applyPermissions() {
+    document.querySelectorAll("nav button").forEach(b => b.classList.toggle("hidden", !canTab(b.dataset.tab)));
+    document.querySelectorAll(".admin-only").forEach(el => el.classList.toggle("hidden", !isAdmin()));
+    document.getElementById("user-bar").innerHTML = currentUser ? `
+      <span><b>${esc(currentUser.name)}</b></span>
+      <span class="role">${roleText(currentUser)}</span>
+      <button type="button" id="change-own-password">Şifremi değiştir</button>
+      <button type="button" id="logout">Çıkış</button>` : "";
+    const active = document.querySelector("nav button.active")?.dataset.tab;
+    if (active && !canTab(active)) showTab("dashboard");
+  }
+
+  document.getElementById("user-bar").addEventListener("click", event => {
+    if (event.target.id === "logout") logout();
+    if (event.target.id === "change-own-password") openPasswordDialog(currentUser, true);
+  });
+
+  function initAuth() {
+    if (!db.users.length) return showAuth("setup");
+    const user = byId(db.users, sessionStorage.getItem(SESSION_KEY));
+    if (user && user.active !== false) return enterApp(user);
+    showAuth("login");
+  }
+
+  document.getElementById("setup-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const f = new FormData(event.currentTarget);
+    const error = document.getElementById("setup-error");
+    const name = f.get("name").trim();
+    const username = f.get("username").trim();
+    const password = f.get("password");
+
+    if (db.users.length) return location.reload();
+    if (!name) return (error.textContent = "Ad soyad girin.");
+    if (!validUsername(username)) return (error.textContent = "Kullanıcı adı 3-30 karakter olmalı; harf, rakam, nokta, tire veya alt çizgi içerebilir.");
+    if (password.length < 6) return (error.textContent = "Şifre en az 6 karakter olmalı.");
+    if (password !== f.get("password2")) return (error.textContent = "Şifreler aynı değil.");
+
+    const user = { id: id(), name, username, role: "admin", perms: [], active: true, createdAt: today(), ...(await makePassword(password)) };
+    db.users.push(user);
+    if (!save()) return;
+    enterApp(user);
+  });
+
+  document.getElementById("login-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const f = new FormData(form);
+    const error = document.getElementById("login-error");
+    error.textContent = "";
+
+    const user = findUser(f.get("username").trim());
+    const ok = user && await checkPassword(user, f.get("password"));
+    if (!ok) {
+      error.textContent = "Kullanıcı adı veya şifre hatalı.";
+      form.password.value = "";
+      form.password.focus();
+      return;
+    }
+    if (user.active === false) {
+      error.textContent = "Bu hesap pasif. Yöneticinize başvurun.";
+      return;
+    }
+    user.lastLogin = new Date().toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" });
+    save();
+    form.reset();
+    enterApp(user);
+  });
+
+  // --- Şifre belirleme / değiştirme penceresi ---
+  function openPasswordDialog(user, own) {
+    const form = document.getElementById("password-form");
+    form.reset();
+    form.userId.value = user.id;
+    form.dataset.own = own ? "1" : "";
+    document.getElementById("password-title").textContent = own ? "Şifremi değiştir" : `Şifre belirle: ${user.name}`;
+    document.getElementById("current-password-wrap").classList.toggle("hidden", !own);
+    form.current.required = own;
+    document.getElementById("password-error").textContent = "";
+    document.getElementById("password-dialog").showModal();
+  }
+
+  document.getElementById("password-cancel").addEventListener("click", () =>
+    document.getElementById("password-dialog").close()
+  );
+
+  document.getElementById("password-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const error = document.getElementById("password-error");
+    const user = byId(db.users, form.userId.value);
+    const own = form.dataset.own === "1";
+    if (!user) return;
+    if (!own && !isAdmin()) return;
+
+    if (own && !(await checkPassword(user, form.current.value))) return (error.textContent = "Mevcut şifre hatalı.");
+    if (form.password.value.length < 6) return (error.textContent = "Yeni şifre en az 6 karakter olmalı.");
+    if (form.password.value !== form.password2.value) return (error.textContent = "Yeni şifreler aynı değil.");
+
+    Object.assign(user, await makePassword(form.password.value));
+    if (!save()) return;
+    document.getElementById("password-dialog").close();
+    alert(own ? "Şifreniz değiştirildi." : `${user.name} kullanıcısının şifresi kaydedildi.`);
+  });
+
+  // --- Kullanıcı yönetimi (yalnızca yönetici) ---
+  document.getElementById("perm-list").innerHTML = PERMISSIONS.map(([key, label]) =>
+    `<label><input type="checkbox" name="perm" value="${key}"> ${label}</label>`).join("");
+
+  function syncRoleFields() {
+    const form = document.getElementById("user-form");
+    document.getElementById("perm-wrap").classList.toggle("hidden", form.role.value === "admin");
+  }
+  document.querySelector('#user-form [name="role"]').addEventListener("change", syncRoleFields);
+
+  function resetUserForm() {
+    const form = document.getElementById("user-form");
+    form.reset();
+    form.id.value = "";
+    document.getElementById("user-form-title").textContent = "Kullanıcı Ekle";
+    document.getElementById("user-password-wrap").classList.remove("hidden");
+    document.getElementById("user-cancel-edit").classList.add("hidden");
+    syncRoleFields();
+  }
+  document.getElementById("user-cancel-edit").addEventListener("click", resetUserForm);
+
+  document.getElementById("user-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    if (!isAdmin()) return;
+    const form = event.currentTarget;
+    const f = new FormData(form);
+    const editing = byId(db.users, f.get("id"));
+    const name = f.get("name").trim();
+    const username = f.get("username").trim();
+    const role = f.get("role") === "admin" ? "admin" : "user";
+    const perms = role === "admin" ? [] : f.getAll("perm");
+    const active = form.active.checked;
+
+    if (!name) return alert("Ad soyad girin.");
+    if (!validUsername(username)) return alert("Kullanıcı adı 3-30 karakter olmalı; harf, rakam, nokta, tire veya alt çizgi içerebilir.");
+    const sameName = findUser(username);
+    if (sameName && sameName !== editing) return alert("Bu kullanıcı adı zaten kullanılıyor.");
+
+    if (editing) {
+      const losesAdmin = editing.role === "admin" && (role !== "admin" || !active);
+      if (losesAdmin && activeAdmins().length <= 1) return alert("Sistemde en az bir aktif yönetici kalmalı.");
+      if (editing.id === currentUser.id && !active) return alert("Kendi hesabınızı pasif yapamazsınız.");
+      Object.assign(editing, { name, username, role, perms, active });
+    } else {
+      const password = f.get("password");
+      if (password.length < 6) return alert("Şifre en az 6 karakter olmalı.");
+      if (role === "user" && !perms.length && !confirm("Bu kullanıcıya hiçbir bölüm yetkisi verilmedi; yalnızca Genel Bakış'ı görebilecek. Devam edilsin mi?")) return;
+      db.users.push({ id: id(), name, username, role, perms, active, createdAt: today(), ...(await makePassword(password)) });
+    }
+
+    if (!save()) return;
+    if (editing?.id === currentUser.id) {
+      currentUser = editing;
+      applyPermissions();
+    }
+    resetUserForm();
+    renderUsers();
+    alert(editing ? "Kullanıcı güncellendi." : "Kullanıcı eklendi.");
+  });
+
+  document.getElementById("users-table").addEventListener("click", event => {
+    const button = event.target.closest("[data-user-action]");
+    if (!button || !isAdmin()) return;
+    const user = byId(db.users, button.dataset.id);
+    if (!user) return;
+    const action = button.dataset.userAction;
+
+    if (action === "edit") {
+      const form = document.getElementById("user-form");
+      form.id.value = user.id;
+      form.name.value = user.name;
+      form.username.value = user.username;
+      form.role.value = user.role;
+      form.active.checked = user.active !== false;
+      form.querySelectorAll('[name="perm"]').forEach(c => { c.checked = (user.perms || []).includes(c.value); });
+      document.getElementById("user-form-title").textContent = `Kullanıcı Düzenle: ${user.name}`;
+      document.getElementById("user-password-wrap").classList.add("hidden");
+      document.getElementById("user-cancel-edit").classList.remove("hidden");
+      syncRoleFields();
+      form.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+
+    if (action === "password") return openPasswordDialog(user, false);
+
+    if (action === "toggle") {
+      const deactivating = user.active !== false;
+      if (deactivating && user.id === currentUser.id) return alert("Kendi hesabınızı pasif yapamazsınız.");
+      if (deactivating && user.role === "admin" && activeAdmins().length <= 1) return alert("Sistemde en az bir aktif yönetici kalmalı.");
+      user.active = !deactivating;
+    }
+
+    if (action === "delete") {
+      if (user.id === currentUser.id) return alert("Kendi hesabınızı silemezsiniz.");
+      if (user.role === "admin" && user.active !== false && activeAdmins().length <= 1) return alert("Sistemde en az bir aktif yönetici kalmalı.");
+      if (!confirm(`“${user.name}” kullanıcısı silinsin mi? Bu kullanıcının geçmiş kayıtlarındaki adı korunur.`)) return;
+      db.users.splice(db.users.indexOf(user), 1);
+    }
+
+    save();
+    renderUsers();
+  });
+
+  function renderUsers() {
+    if (!isAdmin()) return;
+    const labels = Object.fromEntries(PERMISSIONS);
+    document.getElementById("users-table").innerHTML = table(
+      ["Ad soyad", "Kullanıcı adı", "Rol", "Yetkiler", "Son giriş", "İşlem"],
+      db.users.map(u => `<tr>
+        <td>${esc(u.name)}${u.id === currentUser.id ? ' <span class="muted">(siz)</span>' : ""}
+          ${u.active === false ? '<br><span class="badge off">Pasif</span>' : ""}</td>
+        <td>${esc(u.username)}</td>
+        <td><span class="badge ${u.role === "admin" ? "admin" : "user"}">${roleText(u)}</span></td>
+        <td class="recipe-cell">${u.role === "admin" ? "Tüm bölümler" : (u.perms || []).map(p => esc(labels[p] || p)).join(", ") || "Yalnızca Genel Bakış"}</td>
+        <td class="nowrap">${esc(u.lastLogin || "-")}</td>
+        <td><div class="actions-cell">
+          <button type="button" class="secondary" data-user-action="edit" data-id="${esc(u.id)}">Düzenle</button>
+          <button type="button" class="secondary" data-user-action="password" data-id="${esc(u.id)}">Şifre belirle</button>
+          ${u.id === currentUser.id ? "" : `<button type="button" class="${u.active === false ? "secondary" : "danger"}" data-user-action="toggle" data-id="${esc(u.id)}">${u.active === false ? "Aktifleştir" : "Pasif yap"}</button>
+          <button type="button" class="danger" data-user-action="delete" data-id="${esc(u.id)}">Sil</button>`}
+        </div></td>
+      </tr>`)
+    );
+  }
 
   migrateAll();
   save();
   document.querySelectorAll('[name="date"]').forEach(input => input.value = today());
-  render();
+  syncRoleFields();
+  initAuth();
 </script>
 </body>
 </html>
