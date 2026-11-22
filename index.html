@@ -179,15 +179,20 @@
               display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
   body.locked .app-foot { display: none; }
   @media (max-width: 560px) { .brand-logo img { height: 32px; } header h1 { font-size: 17px; } }
+  .sync-status { color: #86efac; font-size: 12px; }
+  body.busy, body.busy * { cursor: progress !important; }
+  body.busy::after { content: "Kaydediliyor…"; position: fixed; right: 16px; bottom: 16px; z-index: 100;
+                     background: var(--navy); color: #fff; padding: 10px 16px; border-radius: 8px;
+                     box-shadow: 0 6px 20px rgba(0,0,0,.25); font-weight: bold; }
 </style>
 </head>
 <body class="locked">
 
-<div id="auth-screen" class="auth hidden">
+<div id="auth-screen" class="auth">
   <div class="auth-card">
     <img id="auth-logo" alt="Logo">
     <h1>Üretim ve Depo Takip</h1>
-    <p class="muted" id="auth-subtitle">Devam etmek için giriş yapın</p>
+    <p class="muted" id="auth-subtitle">Bağlanıyor…</p>
 
     <form id="login-form" class="hidden" autocomplete="on">
       <label>Kullanıcı adı</label>
@@ -485,11 +490,12 @@
       </form>
     </div>
     <div class="panel admin-only">
-      <h2>Yedekleme ve sıfırlama</h2>
-      <p class="muted">Veriler bu tarayıcıda saklanır. Düzenli olarak yedek alın.</p>
+      <h2>Yedekleme, aktarma ve sıfırlama</h2>
+      <p class="muted">Veriler Firebase bulutunda saklanır ve tüm cihazlarda aynı anda görünür. Ücretsiz planda otomatik yedek olmadığı için haftada bir yedek indirmeniz önerilir.
+        Eski (tarayıcıda çalışan) sürümden aldığınız JSON yedeğini “Yedekten geri yükle / içe aktar” ile buluta aktarabilirsiniz.</p>
       <div class="button-row">
         <button type="button" class="secondary" id="backup">Yedek indir (JSON)</button>
-        <button type="button" class="secondary" id="restore">Yedekten geri yükle</button>
+        <button type="button" class="secondary" id="restore">Yedekten geri yükle / içe aktar</button>
         <input type="file" id="restore-file" accept=".json,application/json" class="hidden">
         <button type="button" class="danger" id="reset-all">Tüm verileri sıfırla</button>
       </div>
@@ -529,7 +535,11 @@
       </div>
       <div>
         <div class="panel"><h2>Kullanıcı Listesi</h2><div id="users-table"></div></div>
-        <div class="panel"><h2>Bloke Bildirimleri</h2><div id="lock-log"></div></div>
+        <div class="panel">
+          <h2>Şifre ve hesap güvenliği</h2>
+          <p class="muted" style="margin:0">Giriş işlemleri Firebase tarafından yapılır. Arka arkaya çok sayıda hatalı şifre girilirse hesap birkaç dakikalığına otomatik olarak kilitlenir.
+          Kullanıcılar şifrelerini sağ üstteki “Şifremi değiştir” ile değiştirebilir. Unutulan şifreler için listedeki “Şifre sıfırlama” düğmesine bakın.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -542,11 +552,10 @@
 
 <dialog id="password-dialog">
   <form id="password-form" autocomplete="off">
-    <h2 id="password-title">Şifre belirle</h2>
-    <input type="hidden" name="userId">
+    <h2 id="password-title">Şifremi değiştir</h2>
     <div id="current-password-wrap">
       <label>Mevcut şifre</label>
-      <input name="current" type="password" autocomplete="current-password">
+      <input name="current" type="password" autocomplete="current-password" required>
     </div>
     <label>Yeni şifre (en az 6 karakter)</label>
     <input name="password" type="password" required autocomplete="new-password">
@@ -560,34 +569,56 @@
   </form>
 </dialog>
 
-<script>
-  const STORAGE_KEY = "uretim_depo_takip_v1";
-  // Çok sekme koruması: her kayıtta artan sürüm numarası ayrı anahtarda tutulur.
-  const REV_KEY = STORAGE_KEY + "_rev";
-  const STORAGE_LIMIT = 5 * 1024 * 1024; // tarayıcıların çoğunda yaklaşık 5 MB
+<script type="module">
+  import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getAuth, setPersistence, browserSessionPersistence, inMemoryPersistence,
+    signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged,
+    EmailAuthProvider, reauthenticateWithCredential, updatePassword
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import {
+    initializeFirestore, doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
+    onSnapshot, runTransaction, writeBatch
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  // ================= Firebase bağlantısı =================
+  const firebaseConfig = {
+    apiKey: "AIzaSyA7Ogo3HwHk3kKHSssToTzDwPeGHEj9lNY",
+    authDomain: "kbrimalat.firebaseapp.com",
+    projectId: "kbrimalat",
+    storageBucket: "kbrimalat.firebasestorage.app",
+    messagingSenderId: "42650034530",
+    appId: "1:42650034530:web:c2b50999b46f77a9ab0c3b"
+  };
+
+  const fbApp = initializeApp(firebaseConfig);
+  const auth = getAuth(fbApp);
+  const fs = initializeFirestore(fbApp, { ignoreUndefinedProperties: true });
+
+  // Veri yapısı:
+  //  state/main     → hammadde ve ürün kartları (parti stoklarıyla), fiş sayacı
+  //  logs/{AY_PARÇA} → üretim, sayım fişi ve depo hareket kayıtları (ay bazında, ~0,7 MB'lık parçalar)
+  //  meta/settings  → firma bilgileri ve logo
+  //  meta/setup     → ilk kurulum yapıldı mı
+  //  users/{uid}    → kullanıcı profili (ad, rol, yetkiler, aktiflik)
+  const stateRef = doc(fs, "state", "main");
+  const settingsRef = doc(fs, "meta", "settings");
+  const setupRef = doc(fs, "meta", "setup");
+  const logsCol = collection(fs, "logs");
+  const usersCol = collection(fs, "users");
+  const logRef = logId => doc(fs, "logs", logId);
+  const userRef = uid => doc(fs, "users", uid);
+
+  // Personel e-posta yerine kullanıcı adıyla girer; arka planda bu adrese çevrilir.
+  const EMAIL_DOMAIN = "kbrimalat.firebaseapp.com";
+  const usernameToEmail = username => `${String(username).trim().toLowerCase()}@${EMAIL_DOMAIN}`;
+
+  const LOG_TYPES = ["movements", "production", "counts"];
+  const LOG_DOC_LIMIT = 700000; // Firestore belge sınırı 1 MB; güvenli pay bırakılır
   const BACKUP_REMIND_DAYS = 7;
   const LIST_LIMIT = 200; // ekranda gösterilen en fazla kayıt (CSV/rapor tümünü içerir)
-  let db;
-  let loadedRev = 0;
 
-  function readStoredDb() {
-    let data;
-    try {
-      data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
-    } catch {
-      data = {};
-    }
-    data.materials ||= [];
-    data.products ||= [];
-    data.production ||= [];
-    data.movements ||= [];
-    data.counts ||= [];
-    if (!data.settings || typeof data.settings !== "object" || Array.isArray(data.settings)) data.settings = {};
-    return data;
-  }
-
-  db = readStoredDb();
-  loadedRev = Number(localStorage.getItem(REV_KEY)) || 0;
+  let db = { materials: [], products: [], production: [], movements: [], counts: [], settings: {}, users: [], slipSeq: 0 };
 
   const DEFAULT_SETTINGS = {
     companyName: "KBR",
@@ -717,16 +748,6 @@
     }));
   }
 
-  function migrateAll() {
-    if (!Array.isArray(db.users)) db.users = [];
-    if (!Array.isArray(db.notifications)) db.notifications = [];
-    migrateSlipNumbers();
-    db.materials.forEach(ensureLots);
-    db.products.forEach(ensureLots);
-    // Koli bilgisi olmayan ürünler: 60 paket = 1 koli (Ürünler > Düzelt ile değiştirilebilir).
-    db.products.forEach(p => { if (p.perCase === undefined) p.perCase = 60; });
-  }
-
   // ---------- Koli karşılığı ----------
   // Stok ürün biriminde (paket) tutulur; koli içi adet tanımlıysa koli karşılığı da gösterilir.
   function caseText(perCase, qty, unit) {
@@ -751,22 +772,149 @@
 
   const EPS = 1e-9;
 
-  function save() {
-    // Başka bir sekme bu sekme açıldıktan sonra veri kaydettiyse, eski veriyle üzerine yazma.
-    const storedRev = Number(localStorage.getItem(REV_KEY)) || 0;
-    if (storedRev !== loadedRev) {
-      alert("Veriler başka bir sekmede veya pencerede değiştirildi. Son işleminiz kaydedilmedi; sayfa güncel verilerle yeniden yükleniyor. Lütfen işlemi tekrar yapın.");
-      location.reload();
-      return false;
+  // ================= Bulut kayıt altyapısı =================
+  // Her işlem bir Firestore "transaction" içinde yapılır: sunucudaki en güncel stok okunur,
+  // işlem uygulanır ve sonuç tek seferde yazılır. İki kişi aynı anda işlem yapsa da stok bozulmaz.
+  const clone = value => JSON.parse(JSON.stringify(value ?? null));
+  const monthKey = () => today().slice(0, 7);
+  const partId = (month, part) => `${month}_${String(part).padStart(3, "0")}`;
+  const userError = message => Object.assign(new Error(message), { user: true });
+  const sizeOf = value => JSON.stringify(value).length;
+  const emptyLog = () => ({ movements: [], production: [], counts: [] });
+  const withoutBucket = record => { const { bucket, ...rest } = record; return rest; };
+
+  // Anahtar sırasından bağımsız karşılaştırma için.
+  function stable(value) {
+    const sort = v => Array.isArray(v) ? v.map(sort)
+      : v && typeof v === "object" ? Object.keys(v).sort().reduce((o, k) => { o[k] = sort(v[k]); return o; }, {})
+      : v;
+    return JSON.stringify(sort(value));
+  }
+
+  async function commit(mutate) {
+    const local = { movements: db.movements, production: db.production, counts: db.counts };
+    const original = new Map();
+    LOG_TYPES.forEach(t => local[t].forEach(r => original.set(t + ":" + r.id, stable(r))));
+    const settingsNow = db.settings;
+    const usersNow = db.users;
+
+    return runTransaction(fs, async tx => {
+      const stSnap = await tx.get(stateRef);
+      const st = stSnap.exists() ? stSnap.data() : {};
+      const work = {
+        materials: clone(st.materials || []),
+        products: clone(st.products || []),
+        slipSeq: num(st.slipSeq),
+        logHead: st.logHead || null,
+        movements: clone(local.movements),
+        production: clone(local.production),
+        counts: clone(local.counts),
+        settings: settingsNow,
+        users: usersNow
+      };
+      work.materials.forEach(ensureLots);
+      work.products.forEach(ensureLots);
+
+      // Mevcut iş kodları global "db" üzerinde çalışır; işlem süresince güncel kopyayı kullan.
+      const saved = db;
+      db = work;
+      let result;
+      try {
+        result = mutate();
+      } finally {
+        db = saved;
+      }
+
+      // Yeni eklenen ve değişen kayıtları ayır.
+      const added = emptyLog();
+      const changed = new Map();
+      LOG_TYPES.forEach(t => work[t].forEach(r => {
+        if (!r.bucket) {
+          added[t].push(r);
+        } else if (stable(r) !== original.get(t + ":" + r.id)) {
+          if (!changed.has(r.bucket)) changed.set(r.bucket, { movements: new Map(), production: new Map(), counts: new Map() });
+          changed.get(r.bucket)[t].set(r.id, r);
+        }
+      }));
+
+      const pending = new Map();
+      const load = async logId => {
+        if (!pending.has(logId)) {
+          const snap = await tx.get(logRef(logId));
+          const d = snap.exists() ? snap.data() : {};
+          pending.set(logId, { movements: d.movements || [], production: d.production || [], counts: d.counts || [] });
+        }
+        return pending.get(logId);
+      };
+
+      for (const [bucket, maps] of changed) {
+        const d = await load(bucket);
+        LOG_TYPES.forEach(t => {
+          d[t] = d[t].map(r => {
+            const mine = maps[t].get(r.id);
+            if (!mine) return r;
+            if (stable(r) !== original.get(t + ":" + r.id)) {
+              throw userError("Bu kayıt az önce başka bir kullanıcı tarafından değiştirildi. Ekran güncellendi; lütfen işlemi tekrar deneyin.");
+            }
+            return mine;
+          });
+        });
+      }
+
+      const month = monthKey();
+      let head = work.logHead && String(work.logHead).startsWith(month) ? work.logHead : partId(month, 0);
+      if (LOG_TYPES.some(t => added[t].length)) {
+        let headDoc = await load(head);
+        if (sizeOf(headDoc) + sizeOf(added) > LOG_DOC_LIMIT && LOG_TYPES.some(t => headDoc[t].length)) {
+          head = partId(month, Number(head.split("_")[1]) + 1);
+          headDoc = await load(head);
+        }
+        LOG_TYPES.forEach(t => {
+          headDoc[t] = [...added[t].map(r => ({ ...r, bucket: head })), ...headDoc[t]];
+        });
+      }
+
+      const stamp = new Date().toISOString();
+      tx.set(stateRef, {
+        materials: work.materials,
+        products: work.products,
+        slipSeq: work.slipSeq,
+        logHead: head,
+        updatedAt: stamp,
+        updatedBy: actor()
+      });
+      for (const [logId, data] of pending) tx.set(logRef(logId), { ...data, updatedAt: stamp });
+      return result;
+    });
+  }
+
+  let busy = false;
+  function friendlyError(error) {
+    const code = String(error?.code || "");
+    if (code.includes("permission-denied")) return "Bu işlem için yetkiniz yok veya hesabınız pasif yapılmış.";
+    if (code.includes("unavailable") || code.includes("network") || !navigator.onLine) {
+      return "Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edip tekrar deneyin.";
     }
+    return "İşlem kaydedilemedi: " + (error?.message || error);
+  }
+
+  // Bir işlemi kaydeder; hata olursa kullanıcıya gösterir. { ok, value } döner.
+  async function run(mutate) {
+    if (busy) {
+      alert("Önceki işlem hâlâ kaydediliyor, lütfen birkaç saniye bekleyin.");
+      return { ok: false };
+    }
+    busy = true;
+    document.body.classList.add("busy");
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
-      loadedRev = storedRev + 1;
-      localStorage.setItem(REV_KEY, String(loadedRev));
-      return true;
+      return { ok: true, value: await commit(mutate) };
     } catch (error) {
-      alert("Veriler tarayıcıya kaydedilemedi (depolama dolu veya engelli olabilir). Lütfen hemen yedek alın.");
-      return false;
+      console.error(error);
+      alert(error.user ? error.message : friendlyError(error));
+      return { ok: false };
+    } finally {
+      busy = false;
+      document.body.classList.remove("busy");
     }
   }
 
@@ -848,16 +996,23 @@
     </div>`;
   }
 
-  function handleCardAction(event) {
+  async function handleCardAction(event) {
     const button = event.target.closest("[data-action]");
     if (!button) return;
 
     const kind = button.dataset.kind;
     const action = button.dataset.action;
     if (!can(kind === "material" ? "materials" : "products")) return alert("Bu işlem için yetkiniz yok.");
-    const list = kind === "material" ? db.materials : db.products;
-    const item = byId(list, button.dataset.id);
+    const listOf = () => kind === "material" ? db.materials : db.products;
+    const item = byId(listOf(), button.dataset.id);
     if (!item) return;
+    const itemId = item.id;
+    // İşlem sırasında sunucudaki güncel kartı bul.
+    const fresh = () => {
+      const x = byId(listOf(), itemId);
+      if (!x) throw userError("Kart bulunamadı; başka bir kullanıcı silmiş olabilir.");
+      return x;
+    };
 
     if (action === "delete") {
       const hasStock = Math.abs(num(item.stock)) > 0.000001;
@@ -878,17 +1033,20 @@
       }
 
       if (!confirm(`“${item.name}” kalıcı olarak silinsin mi?`)) return;
-      list.splice(list.findIndex(x => x.id === item.id), 1);
-      if (!save()) return;
-      render();
+      await run(() => {
+        const x = fresh();
+        if (Math.abs(num(x.stock)) > 0.000001) throw userError("Bu kartın stoğu var; silinemez.");
+        const list = listOf();
+        list.splice(list.indexOf(x), 1);
+      });
       return;
     }
 
     if (action === "cancel") {
       if (!confirm(`“${item.name}” pasif yapılsın mı?`)) return;
-      item.active = false;
+      await run(() => { fresh().active = false; });
     } else if (action === "activate") {
-      item.active = true;
+      await run(() => { fresh().active = true; });
     } else if (action === "edit" && kind === "material") {
       const name = prompt("Hammadde adı:", item.name);
       if (name === null) return;
@@ -896,8 +1054,12 @@
       if (unit === null) return;
       if (!name.trim() || !unit.trim()) return alert("Ad ve birim boş olamaz.");
       if (nameTaken(db.materials, name, item.id)) return alert("Bu adla başka bir hammadde zaten var.");
-      item.name = name.trim();
-      item.unit = unit.trim();
+      await run(() => {
+        const x = fresh();
+        if (nameTaken(db.materials, name, x.id)) throw userError("Bu adla başka bir hammadde zaten var.");
+        x.name = name.trim();
+        x.unit = unit.trim();
+      });
     } else if (action === "edit" && kind === "product") {
       const name = prompt("Ürün adı:", item.name);
       if (name === null) return;
@@ -911,14 +1073,15 @@
       if (nameTaken(db.products, name, item.id)) return alert("Bu adla başka bir ürün zaten var.");
       const per = Number(String(perCase).replace(",", "."));
       if (!Number.isFinite(per) || per < 0 || !Number.isInteger(per)) return alert("Koli içi adet 0 veya pozitif tam sayı olmalı.");
-      item.name = name.trim();
-      item.category = category.trim() || "Diğer";
-      item.unit = unit.trim();
-      item.perCase = per;
+      await run(() => {
+        const x = fresh();
+        if (nameTaken(db.products, name, x.id)) throw userError("Bu adla başka bir ürün zaten var.");
+        x.name = name.trim();
+        x.category = category.trim() || "Diğer";
+        x.unit = unit.trim();
+        x.perCase = per;
+      });
     }
-
-    if (!save()) return;
-    render();
   }
 
   document.getElementById("materials-table").addEventListener("click", handleCardAction);
@@ -962,31 +1125,35 @@
     if (event.target.classList.contains("remove-recipe")) event.target.closest(".recipe-row").remove();
   });
 
-  document.getElementById("material-form").addEventListener("submit", event => {
+  document.getElementById("material-form").addEventListener("submit", async event => {
     event.preventDefault();
     if (!can("materials")) return alert("Bu işlem için yetkiniz yok.");
-    const f = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const f = new FormData(form);
     const name = f.get("name").trim();
     const unit = f.get("unit").trim();
 
     if (!name || !unit) return alert("Ad ve birim boş olamaz.");
     if (nameTaken(db.materials, name)) return alert("Bu adla bir hammadde zaten var.");
-
-    const material = { id: id(), name, unit, stock: 0, lots: [], active: true };
     const openingStock = round(f.get("stock"));
-    if (openingStock > 0) addLot(material, lotKey(f.get("lot")) || "AÇILIŞ", openingStock, today());
-    db.materials.push(material);
+    const openingLot = lotKey(f.get("lot")) || "AÇILIŞ";
 
-    if (!save()) return;
-    event.currentTarget.reset();
-    render();
+    const result = await run(() => {
+      if (nameTaken(db.materials, name)) throw userError("Bu adla bir hammadde zaten var.");
+      const material = { id: id(), name, unit, stock: 0, lots: [], active: true };
+      if (openingStock > 0) addLot(material, openingLot, openingStock, today());
+      db.materials.push(material);
+    });
+    if (!result.ok) return;
+    form.reset();
     alert("Hammadde kaydedildi.");
   });
 
-  document.getElementById("product-form").addEventListener("submit", event => {
+  document.getElementById("product-form").addEventListener("submit", async event => {
     event.preventDefault();
     if (!can("products")) return alert("Bu işlem için yetkiniz yok.");
-    const f = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const f = new FormData(form);
 
     const name = f.get("name").trim();
     const unit = f.get("unit").trim();
@@ -999,16 +1166,20 @@
       alert("Reçete satırlarını kontrol edin.");
       return;
     }
-
-    const product = { id: id(), name, category: f.get("category"), unit, perCase: Math.max(0, Math.floor(num(f.get("perCase")))), stock: 0, lots: [], recipe, active: true };
+    const category = f.get("category");
+    const perCase = Math.max(0, Math.floor(num(f.get("perCase"))));
     const openingStock = round(f.get("stock"));
-    if (openingStock > 0) addLot(product, lotKey(f.get("lot")) || "AÇILIŞ", openingStock, today());
-    db.products.push(product);
+    const openingLot = lotKey(f.get("lot")) || "AÇILIŞ";
 
-    if (!save()) return;
-    event.currentTarget.reset();
+    const result = await run(() => {
+      if (nameTaken(db.products, name)) throw userError("Bu adla bir ürün zaten var.");
+      const product = { id: id(), name, category, unit, perCase, stock: 0, lots: [], recipe, active: true };
+      if (openingStock > 0) addLot(product, openingLot, openingStock, today());
+      db.products.push(product);
+    });
+    if (!result.ok) return;
+    form.reset();
     document.getElementById("recipe-rows").innerHTML = "";
-    render();
     alert("Ürün kaydedildi.");
   });
 
@@ -1055,12 +1226,12 @@
     document.getElementById("recipe-dialog").close()
   );
 
-  document.getElementById("recipe-edit-form").addEventListener("submit", event => {
+  document.getElementById("recipe-edit-form").addEventListener("submit", async event => {
     event.preventDefault();
     if (!can("products")) return alert("Bu işlem için yetkiniz yok.");
     const f = new FormData(event.currentTarget);
-    const product = byId(db.products, f.get("productId"));
-    if (!product) return;
+    const productId = f.get("productId");
+    if (!byId(db.products, productId)) return;
 
     const recipe = readRecipe("edit-recipe-rows", "edit-recipe-material", "edit-recipe-quantity");
 
@@ -1069,21 +1240,25 @@
       return;
     }
 
-    product.recipe = recipe;
-    if (!save()) return;
+    const result = await run(() => {
+      const product = byId(db.products, productId);
+      if (!product) throw userError("Ürün bulunamadı; başka bir kullanıcı silmiş olabilir.");
+      product.recipe = recipe;
+    });
+    if (!result.ok) return;
     document.getElementById("recipe-dialog").close();
-    render();
     alert("Reçete kaydedildi.");
   });
 
   // Sayım gönderildiğinde fişi kaydet ve üretimi hemen işle.
-  document.getElementById("count-form").addEventListener("submit", event => {
+  document.getElementById("count-form").addEventListener("submit", async event => {
     event.preventDefault();
     if (!can("counting")) return alert("Bu işlem için yetkiniz yok.");
 
     const form = event.currentTarget;
     const f = new FormData(form);
-    const product = byId(db.products, f.get("productId"));
+    const productId = f.get("productId");
+    const product = byId(db.products, productId);
     const good = num(f.get("good"));
     const reject = num(f.get("reject"));
 
@@ -1108,17 +1283,15 @@
 
     const total = good + reject;
 
-    const requirements = recipeNeeds(product, total);
-
-    const invalidMaterial = requirements.find(x => !x.material || !isActive(x.material));
-    if (invalidMaterial) {
+    // Ön kontrol (ekrandaki veriyle). Kayıt sırasında sunucudaki güncel stokla tekrar kontrol edilir.
+    const preview = recipeNeeds(product, total);
+    if (preview.some(x => !x.material || !isActive(x.material))) {
       alert("Reçetede pasif veya bulunamayan hammadde var. Reçeteyi düzeltin ya da malzemeyi aktifleştirin.");
       return;
     }
-
-    const shortage = requirements.find(x => num(x.material.stock) + EPS < x.amount);
-    if (shortage) {
-      alert(`${shortage.material.name} stoğu yetersiz.\nGerekli: ${fmt(shortage.amount)} ${shortage.material.unit}\nMevcut: ${fmt(shortage.material.stock)} ${shortage.material.unit}`);
+    const previewShort = preview.find(x => num(x.material.stock) + EPS < x.amount);
+    if (previewShort) {
+      alert(`${previewShort.material.name} stoğu yetersiz.\nGerekli: ${fmt(previewShort.amount)} ${previewShort.material.unit}\nMevcut: ${fmt(previewShort.material.stock)} ${previewShort.material.unit}`);
       return;
     }
 
@@ -1132,114 +1305,155 @@
       if (clash && !confirm(`"${lotInput}" numarası "${clash.name}" için de kullanılmış. Aynı numara parti izlemede karışıklığa yol açar.\n\nYine de bu parti numarası kullanılsın mı?`)) return;
     }
 
-    const count = {
-      id: id(),
-      by: actor(),
-      no: nextSlipNo(),
+    const input = {
       date: f.get("date"),
-      productId: product.id,
-      product: product.name,
-      unit: product.unit,
-      perCase: num(product.perCase),
       shift: f.get("shift"),
       operator: (f.get("operator") || "").trim(),
-      good,
-      reject,
-      total,
-      note: (f.get("note") || "").trim(),
-      processed: true,
-      consumed: []
+      note: (f.get("note") || "").trim()
     };
-    count.lot = lotInput || count.no;
 
-    // Reçete hammaddelerini toplam üretilen miktar kadar, en eski partiden başlayarak düş.
-    requirements.forEach(x => {
-      takeFifo(x.material, x.amount).forEach(a => {
-        count.consumed.push({
-          materialId: x.material.id,
-          material: x.material.name,
-          lot: a.lot,
-          lotDate: a.date,
-          quantity: a.qty,
-          unit: x.material.unit
+    // Yazdırma penceresi tıklama anında açılır; aksi halde tarayıcı engelleyebilir.
+    const printWindow = window.open("", "_blank");
+
+    const result = await run(() => {
+      const product = byId(db.products, productId);
+      if (!product || !isActive(product)) throw userError("Ürün bulunamadı veya pasif yapılmış.");
+      if (!product.recipe?.length) throw userError("Bu ürünün reçetesi tanımlı değil.");
+
+      const requirements = recipeNeeds(product, total);
+      if (requirements.some(x => !x.material || !isActive(x.material))) {
+        throw userError("Reçetede pasif veya bulunamayan hammadde var. Reçeteyi düzeltin ya da malzemeyi aktifleştirin.");
+      }
+      const shortage = requirements.find(x => num(x.material.stock) + EPS < x.amount);
+      if (shortage) {
+        throw userError(`${shortage.material.name} stoğu yetersiz.\nGerekli: ${fmt(shortage.amount)} ${shortage.material.unit}\nMevcut: ${fmt(shortage.material.stock)} ${shortage.material.unit}`);
+      }
+
+      const count = {
+        id: id(),
+        by: actor(),
+        no: nextSlipNo(),
+        date: input.date,
+        productId: product.id,
+        product: product.name,
+        unit: product.unit,
+        perCase: num(product.perCase),
+        shift: input.shift,
+        operator: input.operator,
+        good,
+        reject,
+        total,
+        note: input.note,
+        processed: true,
+        consumed: []
+      };
+      count.lot = lotInput || count.no;
+
+      // Reçete hammaddelerini toplam üretilen miktar kadar, en eski partiden başlayarak düş.
+      requirements.forEach(x => {
+        takeFifo(x.material, x.amount).forEach(a => {
+          count.consumed.push({
+            materialId: x.material.id,
+            material: x.material.name,
+            lot: a.lot,
+            lotDate: a.date,
+            quantity: a.qty,
+            unit: x.material.unit
+          });
+
+          db.movements.unshift({
+            id: id(),
+            by: actor(),
+            countId: count.id,
+            date: count.date,
+            type: "Üretimde hammadde tüketimi",
+            itemId: x.material.id,
+            item: x.material.name,
+            lot: a.lot,
+            lotDate: a.date,
+            quantity: a.qty,
+            unit: x.material.unit,
+            note: `${product.name} / mamul parti ${count.lot} / ${count.shift} / fiş ${count.no}`
+          });
         });
+      });
 
+      // Mamul stoğuna yalnız sağlam ürünleri, fişin partisine ekle.
+      if (good > 0) addLot(product, count.lot, good, count.date);
+
+      // Üretim kaydını oluştur.
+      db.production.unshift({
+        id: id(),
+        by: actor(),
+        countId: count.id,
+        countNo: count.no,
+        lot: count.lot,
+        date: count.date,
+        productId: product.id,
+        product: product.name,
+        unit: product.unit,
+        goodQuantity: good,
+        rejectQuantity: reject,
+        totalQuantity: total,
+        quantity: total,
+        shift: count.shift,
+        operator: count.operator,
+        note: count.note
+      });
+
+      // Sayım fişini sakla.
+      db.counts.unshift(count);
+
+      // Mamul giriş hareketi.
+      if (good > 0) {
         db.movements.unshift({
           id: id(),
           by: actor(),
           countId: count.id,
           date: count.date,
-          type: "Üretimde hammadde tüketimi",
-          itemId: x.material.id,
-          item: x.material.name,
-          lot: a.lot,
-          lotDate: a.date,
-          quantity: a.qty,
-          unit: x.material.unit,
-          note: `${product.name} / mamul parti ${count.lot} / ${count.shift} / fiş ${count.no}`
+          type: "Üretimden ürün girişi",
+          itemId: product.id,
+          item: product.name,
+          lot: count.lot,
+          quantity: good,
+          unit: product.unit,
+          note: `${count.shift}${count.operator ? " / " + count.operator : ""} / fiş ${count.no}`
         });
-      });
+      }
+      return count;
     });
 
-    // Mamul stoğuna yalnız sağlam ürünleri, fişin partisine ekle.
-    if (good > 0) addLot(product, count.lot, good, count.date);
-
-    // Üretim kaydını oluştur.
-    db.production.unshift({
-      id: id(),
-      by: actor(),
-      countId: count.id,
-      countNo: count.no,
-      lot: count.lot,
-      date: count.date,
-      productId: product.id,
-      product: product.name,
-      unit: product.unit,
-      goodQuantity: good,
-      rejectQuantity: reject,
-      totalQuantity: total,
-      quantity: total,
-      shift: count.shift,
-      operator: count.operator,
-      note: count.note
-    });
-
-    // Sayım fişini sakla.
-    db.counts.unshift(count);
-
-    // Mamul giriş hareketi.
-    if (good > 0) {
-      db.movements.unshift({
-        id: id(),
-        by: actor(),
-        countId: count.id,
-        date: count.date,
-        type: "Üretimden ürün girişi",
-        itemId: product.id,
-        item: product.name,
-        lot: count.lot,
-        quantity: good,
-        unit: product.unit,
-        note: `${count.shift}${count.operator ? " / " + count.operator : ""} / fiş ${count.no}`
-      });
+    if (!result.ok) {
+      if (printWindow) printWindow.close();
+      return;
     }
-
-    if (!save()) return;
+    const count = result.value;
 
     form.reset();
     form.querySelector('[name="date"]').value = today();
-    render();
+    updateCountPreview();
 
-    // Kaydetme/işleme tamamlandıktan sonra PDF penceresini aç.
-    printCountSlip(count);
+    // Kayıt tamamlandıktan sonra PDF fişini yazdır.
+    printCountSlip(count, printWindow);
 
-    alert(`Üretim işlendi.\nMamul parti no: ${count.lot}\nSağlam mamul stoğa eklendi: ${fmt(good)} ${product.unit}${caseText(product.perCase, good, product.unit) ? ` (${caseText(product.perCase, good, product.unit)})` : ""}\nHammadde tüketimi: ${fmt(total)} ${product.unit} üzerinden hesaplandı.`);
+    const cases = caseText(count.perCase, good, count.unit);
+    alert(`Üretim işlendi.\nFiş no: ${count.no}\nMamul parti no: ${count.lot}\nSağlam mamul stoğa eklendi: ${fmt(good)} ${count.unit}${cases ? ` (${cases})` : ""}\nHammadde tüketimi: ${fmt(total)} ${count.unit} üzerinden hesaplandı.`);
   });
 
   // Hatalı girilen bir üretim fişini geri al: hammaddeyi iade et, sağlam ürünü stoktan düş.
-  function cancelCount(count) {
+  async function cancelCount(count) {
     if (count.cancelled) return;
     if (!can("cancelSlip")) return alert("Fiş iptali için yetkiniz yok.");
+
+    // Bu fişe ait tüketim hareketleri (eski kayıtlarda açıklamadaki fiş numarasından bulunur).
+    const consumptionsOf = c => db.movements.filter(m =>
+      m.type === "Üretimde hammadde tüketimi" &&
+      (m.countId ? m.countId === c.id : [`fiş ${c.id}`, `fiş ${c.no}`].some(t => String(m.note || "").endsWith(t)))
+    );
+    const returnsOf = c => consumptionsOf(c).map(m => ({
+      movement: m,
+      material: m.itemId ? byId(db.materials, m.itemId) : db.materials.find(x => x.name === m.item)
+    }));
 
     const product = byId(db.products, count.productId);
     if (!product) {
@@ -1251,73 +1465,74 @@
       alert(`"${productLot}" partisinde yeterli mamul yok, fiş iptal edilemez (partinin bir kısmı sevk edilmiş olabilir).\nGerekli: ${fmt(count.good)} ${product.unit}\nPartide mevcut: ${fmt(lotQty(product, productLot))} ${product.unit}`);
       return;
     }
-
-    // Bu fişe ait tüketim hareketleri (eski kayıtlarda açıklamadaki fiş numarasından bulunur).
-    const consumptions = db.movements.filter(m =>
-      m.type === "Üretimde hammadde tüketimi" &&
-      (m.countId ? m.countId === count.id : [`fiş ${count.id}`, `fiş ${count.no}`].some(t => String(m.note || "").endsWith(t)))
-    );
-
-    const returns = consumptions.map(m => ({
-      movement: m,
-      material: m.itemId ? byId(db.materials, m.itemId) : db.materials.find(x => x.name === m.item)
-    }));
-    if (returns.some(r => !r.material)) {
+    if (returnsOf(count).some(r => !r.material)) {
       alert("Fişte kullanılan hammaddelerden biri bulunamadı; fiş iptal edilemez.");
       return;
     }
 
     if (!confirm(`${slipNo(count)} numaralı fiş (${count.date} / ${count.shift} / ${count.product}) iptal edilsin mi?\n\nHammaddeler stoğa iade edilecek, ${fmt(count.good)} ${product.unit} sağlam ürün mamul stoğundan düşülecek.`)) return;
 
-    const date = today();
-    returns.forEach(r => {
-      const lot = r.movement.lot || NO_LOT;
-      addLot(r.material, lot, num(r.movement.quantity), r.movement.lotDate ?? "");
-      db.movements.unshift({
-        id: id(),
-        by: actor(),
-        countId: count.id,
-        date,
-        type: "Üretim iptali - hammadde iadesi",
-        itemId: r.material.id,
-        item: r.material.name,
-        lot,
-        quantity: num(r.movement.quantity),
-        unit: r.material.unit,
-        note: `${count.product} / ${count.shift} / fiş ${count.no}`
+    const countId = count.id;
+    const result = await run(() => {
+      const c = byId(db.counts, countId);
+      if (!c || c.cancelled) throw userError("Bu fiş zaten iptal edilmiş.");
+      const product = byId(db.products, c.productId);
+      if (!product) throw userError("Bu fişin ürün kartı bulunamadı; fiş iptal edilemez.");
+      const productLot = c.lot || NO_LOT;
+      if (num(c.good) > 0 && lotQty(product, productLot) + EPS < num(c.good)) {
+        throw userError(`"${productLot}" partisinde yeterli mamul yok, fiş iptal edilemez.\nGerekli: ${fmt(c.good)} ${product.unit}\nPartide mevcut: ${fmt(lotQty(product, productLot))} ${product.unit}`);
+      }
+      const returns = returnsOf(c);
+      if (returns.some(r => !r.material)) throw userError("Fişte kullanılan hammaddelerden biri bulunamadı; fiş iptal edilemez.");
+
+      const date = today();
+      returns.forEach(r => {
+        const lot = r.movement.lot || NO_LOT;
+        addLot(r.material, lot, num(r.movement.quantity), r.movement.lotDate ?? "");
+        db.movements.unshift({
+          id: id(),
+          by: actor(),
+          countId: c.id,
+          date,
+          type: "Üretim iptali - hammadde iadesi",
+          itemId: r.material.id,
+          item: r.material.name,
+          lot,
+          quantity: num(r.movement.quantity),
+          unit: r.material.unit,
+          note: `${c.product} / ${c.shift} / fiş ${c.no}`
+        });
       });
+
+      if (num(c.good) > 0) {
+        takeLot(product, productLot, num(c.good));
+        db.movements.unshift({
+          id: id(),
+          by: actor(),
+          countId: c.id,
+          date,
+          type: "Üretim iptali - mamul düşüşü",
+          itemId: product.id,
+          item: product.name,
+          lot: productLot,
+          quantity: num(c.good),
+          unit: product.unit,
+          note: `${c.shift} / fiş ${c.no}`
+        });
+      }
+
+      c.cancelled = true;
+      c.cancelledAt = date;
+      c.cancelledBy = actor();
+      db.production.filter(p => p.countId === c.id).forEach(p => { p.cancelled = true; });
     });
 
-    if (num(count.good) > 0) {
-      takeLot(product, productLot, num(count.good));
-      db.movements.unshift({
-        id: id(),
-        by: actor(),
-        countId: count.id,
-        date,
-        type: "Üretim iptali - mamul düşüşü",
-        itemId: product.id,
-        item: product.name,
-        lot: productLot,
-        quantity: num(count.good),
-        unit: product.unit,
-        note: `${count.shift} / fiş ${count.no}`
-      });
-    }
-
-    count.cancelled = true;
-    count.cancelledAt = date;
-    count.cancelledBy = actor();
-    db.production.filter(p => p.countId === count.id).forEach(p => { p.cancelled = true; });
-
-    if (!save()) return;
-    render();
-    alert("Fiş iptal edildi ve stoklar geri alındı.");
+    if (result.ok) alert("Fiş iptal edildi ve stoklar geri alındı.");
   }
 
   // Sayım fişinin kurumsal, A4 yazdırılabilir PDF çıktısı
-  function printCountSlip(count) {
-    const printWindow = window.open("", "_blank");
+  function printCountSlip(count, openedWindow) {
+    const printWindow = openedWindow && !openedWindow.closed ? openedWindow : window.open("", "_blank");
 
     if (!printWindow) {
       alert("Yazdırma penceresi engellendi. Tarayıcıda açılır pencerelere izin verin veya fiş listesindeki “PDF yazdır” düğmesini kullanın.");
@@ -1504,18 +1719,28 @@
     document.getElementById("logo-preview").innerHTML = logoHtml(66);
   }
 
-  document.getElementById("settings-form").addEventListener("submit", event => {
+  const SETTINGS_FIELDS = ["companyName", "companySubtitle", "address", "phone", "email", "taxInfo", "docCode"];
+
+  async function saveSettings(patch, okMessage) {
+    try {
+      await setDoc(settingsRef, patch, { merge: true });
+      if (okMessage) alert(okMessage);
+      return true;
+    } catch (error) {
+      console.error(error);
+      alert(friendlyError(error));
+      return false;
+    }
+  }
+
+  document.getElementById("settings-form").addEventListener("submit", async event => {
     event.preventDefault();
     if (!isAdmin()) return;
     const f = new FormData(event.currentTarget);
-    ["companyName", "companySubtitle", "address", "phone", "email", "taxInfo", "docCode"].forEach(k => {
-      db.settings[k] = (f.get(k) || "").trim();
-    });
-    if (!db.settings.companyName) db.settings.companyName = DEFAULT_SETTINGS.companyName;
-    if (save()) {
-      renderSettings();
-      alert("Firma bilgileri kaydedildi.");
-    }
+    const patch = {};
+    SETTINGS_FIELDS.forEach(k => { patch[k] = (f.get(k) || "").trim(); });
+    if (!patch.companyName) patch.companyName = DEFAULT_SETTINGS.companyName;
+    await saveSettings(patch, "Firma bilgileri kaydedildi.");
   });
 
   document.getElementById("logo-upload").addEventListener("click", () => {
@@ -1526,16 +1751,11 @@
     const input = event.currentTarget;
     const file = input.files[0];
     input.value = "";
-    if (!file) return;
+    if (!file || !isAdmin()) return;
 
     const storeLogo = dataUrl => {
-      const previous = db.settings.logo;
-      db.settings.logo = dataUrl;
-      if (save()) {
-        renderSettings();
-      } else {
-        db.settings.logo = previous;
-      }
+      if (dataUrl.length > 600000) return alert("Logo dosyası çok büyük. Daha küçük (en fazla ~400 KB) bir görsel yükleyin.");
+      saveSettings({ logo: dataUrl }, "Logo kaydedildi.");
     };
 
     const reader = new FileReader();
@@ -1548,7 +1768,7 @@
       return;
     }
 
-    // Bitmap logoları tarayıcı depolamasını doldurmaması için küçült (en fazla 800×300 px).
+    // Bitmap logoları küçült (en fazla 800×300 px).
     reader.onload = () => {
       const img = new Image();
       img.onload = () => {
@@ -1568,9 +1788,7 @@
   document.getElementById("logo-reset").addEventListener("click", () => {
     if (!isAdmin() || !db.settings.logo) return;
     if (!confirm("Yüklenen logo kaldırılıp varsayılan KBR logosu kullanılsın mı?")) return;
-    db.settings.logo = "";
-    if (!save()) return;
-    renderSettings();
+    saveSettings({ logo: "" });
   });
 
   document.getElementById("slip-preview").addEventListener("click", () => {
@@ -1658,69 +1876,76 @@
 
   document.getElementById("movement-item").addEventListener("change", updateLotOutOptions);
 
-  document.getElementById("movement-form").addEventListener("submit", event => {
+  document.getElementById("movement-form").addEventListener("submit", async event => {
     event.preventDefault();
     if (!can("warehouse")) return alert("Bu işlem için yetkiniz yok.");
-    const f = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const f = new FormData(form);
     const type = f.get("type");
-    const list = type === "material_in" ? db.materials : db.products;
-    const item = byId(list, f.get("itemId"));
+    const itemId = f.get("itemId");
+    const listOf = () => type === "material_in" ? db.materials : db.products;
+    const item = byId(listOf(), itemId);
     const quantity = num(f.get("quantity"));
+    const date = f.get("date");
+    const note = (f.get("note") || "").trim();
+    const lotIn = lotKey(f.get("lotIn"));
+    const lotOut = f.get("lotOut");
 
     if (!item || quantity <= 0) {
       alert("Malzeme/ürün ve miktarı kontrol edin.");
       return;
     }
-    if (!f.get("date")) {
+    if (!date) {
       alert("Tarih girin.");
       return;
     }
-    let allocations;
-    if (type === "material_in") {
-      const lot = lotKey(f.get("lotIn"));
-      if (!lot) {
-        alert("Hammadde girişi için parti / lot no girin.");
-        return;
-      }
-      addLot(item, lot, quantity, f.get("date"));
-      allocations = [{ lot, qty: quantity }];
-    } else {
-      const lot = f.get("lotOut");
-      if (lot) {
-        if (lotQty(item, lot) + EPS < quantity) {
-          alert(`"${lot}" partisinde yeterli stok yok. Partide mevcut: ${fmt(lotQty(item, lot))} ${item.unit}`);
-          return;
+    if (type === "material_in" && !lotIn) {
+      alert("Hammadde girişi için parti / lot no girin.");
+      return;
+    }
+
+    const result = await run(() => {
+      const item = byId(listOf(), itemId);
+      if (!item) throw userError("Kart bulunamadı; başka bir kullanıcı silmiş olabilir.");
+      let allocations;
+      if (type === "material_in") {
+        addLot(item, lotIn, quantity, date);
+        allocations = [{ lot: lotIn, qty: quantity }];
+      } else if (lotOut) {
+        if (lotQty(item, lotOut) + EPS < quantity) {
+          throw userError(`"${lotOut}" partisinde yeterli stok yok. Partide mevcut: ${fmt(lotQty(item, lotOut))} ${item.unit}`);
         }
-        allocations = takeLot(item, lot, quantity);
+        allocations = takeLot(item, lotOut, quantity);
       } else {
         if (num(item.stock) + EPS < quantity) {
-          alert(`Mamul stoğu yetersiz. Mevcut stok: ${fmt(item.stock)} ${item.unit}`);
-          return;
+          throw userError(`Mamul stoğu yetersiz. Mevcut stok: ${fmt(item.stock)} ${item.unit}`);
         }
         allocations = takeFifo(item, quantity);
       }
-    }
 
-    // Birden fazla partiden sevk edildiyse her parti ayrı satır olarak kaydedilir.
-    allocations.forEach(a => {
-      db.movements.unshift({
-        id: id(),
-        by: actor(),
-        date: f.get("date"),
-        type: type === "material_in" ? "Hammadde girişi" : "Mamul sevkiyatı",
-        itemId: item.id,
-        item: item.name,
-        lot: a.lot,
-        quantity: a.qty,
-        unit: item.unit,
-        note: (f.get("note") || "").trim()
+      // Birden fazla partiden sevk edildiyse her parti ayrı satır olarak kaydedilir.
+      allocations.forEach(a => {
+        db.movements.unshift({
+          id: id(),
+          by: actor(),
+          date,
+          type: type === "material_in" ? "Hammadde girişi" : "Mamul sevkiyatı",
+          itemId: item.id,
+          item: item.name,
+          lot: a.lot,
+          quantity: a.qty,
+          unit: item.unit,
+          note
+        });
       });
+      return allocations;
     });
 
-    if (!save()) return;
-    event.currentTarget.reset();
-    event.currentTarget.querySelector('[name="date"]').value = today();
-    render();
+    if (!result.ok) return;
+    const allocations = result.value;
+    form.reset();
+    form.querySelector('[name="date"]').value = today();
+    updateMovementOptions();
     alert(allocations.length > 1
       ? `Depo hareketi kaydedildi.\nSevk edilen partiler: ${allocations.map(a => `${a.lot} (${fmt(a.qty)})`).join(", ")}`
       : `Depo hareketi kaydedildi. Parti: ${allocations[0].lot}`);
@@ -2339,19 +2564,28 @@
     );
   }
 
+  // ================= Yedekleme, içe aktarma, sıfırlama =================
   document.getElementById("backup").addEventListener("click", () => {
     if (!isAdmin()) return;
-    db.lastBackup = today();
-    if (!save()) return;
-    const blob = new Blob([JSON.stringify(db, null, 2)], { type: "application/json" });
+    const data = {
+      exportedAt: new Date().toISOString(),
+      source: "firebase",
+      materials: db.materials,
+      products: db.products,
+      production: db.production.map(withoutBucket),
+      movements: db.movements.map(withoutBucket),
+      counts: db.counts.map(withoutBucket),
+      slipSeq: db.slipSeq,
+      settings: db.settings
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     downloadBlob(blob, `uretim-depo-yedek-${today()}.json`);
-    renderAdminAlerts();
+    setDoc(settingsRef, { lastBackup: today() }, { merge: true }).catch(error => console.error(error));
   });
 
-  // Yedekten geri yükleme
-  document.getElementById("restore").addEventListener("click", () =>
-    document.getElementById("restore-file").click()
-  );
+  document.getElementById("restore").addEventListener("click", () => {
+    if (isAdmin()) document.getElementById("restore-file").click();
+  });
 
   document.getElementById("restore-file").addEventListener("change", event => {
     const input = event.currentTarget;
@@ -2363,7 +2597,7 @@
     }
 
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       input.value = "";
       let data;
       try {
@@ -2373,29 +2607,25 @@
         return;
       }
 
-      const keys = ["materials", "products", "production", "movements", "counts"];
-      if (!data || typeof data !== "object" || keys.some(k => data[k] !== undefined && !Array.isArray(data[k]))) {
+      if (!data || typeof data !== "object" || LOG_TYPES.concat(["materials", "products"]).some(k => data[k] !== undefined && !Array.isArray(data[k]))) {
         alert("Bu dosya geçerli bir yedek değil.");
         return;
       }
 
-      if (!confirm("Mevcut tüm veriler bu yedekteki verilerle değiştirilecek. Devam edilsin mi?")) return;
-      keys.forEach(k => { db[k] = Array.isArray(data[k]) ? data[k] : []; });
-      // Yedekte kullanıcı listesi varsa onu kullan; yoksa mevcut kullanıcılar korunur.
-      if (Array.isArray(data.users) && data.users.some(u => u.role === "admin")) db.users = data.users;
-      db.slipSeq = num(data.slipSeq);
-      db.settings = data.settings && typeof data.settings === "object" && !Array.isArray(data.settings) ? data.settings : {};
-      migrateAll();
-      if (save()) {
-        if (!byId(db.users, currentUser.id)) {
-          alert("Yedek geri yüklendi. Yedekteki kullanıcı listesi geçerli olduğu için yeniden giriş yapın.");
-          logout();
-          return;
-        }
-        currentUser = byId(db.users, currentUser.id);
-        applyPermissions();
-        render();
-        alert("Yedek geri yüklendi.");
+      const summary = `Hammadde: ${(data.materials || []).length}, ürün: ${(data.products || []).length}, ` +
+        `üretim fişi: ${(data.counts || []).length}, depo hareketi: ${(data.movements || []).length}`;
+      if (!confirm(`Yedekteki veriler: ${summary}\n\nBuluttaki tüm hammadde, ürün, stok ve kayıtlar bu yedektekilerle DEĞİŞTİRİLECEK. Kullanıcı hesapları değişmez.\n\nDevam edilsin mi?`)) return;
+      if (!confirm("Bu işlem geri alınamaz. Emin misiniz?")) return;
+
+      document.body.classList.add("busy");
+      try {
+        await importBackup(data);
+        alert("Yedek buluta aktarıldı.\n\nNot: Eski sistemdeki kullanıcı hesapları aktarılmaz; kullanıcıları Kullanıcılar bölümünden yeniden ekleyin.");
+      } catch (error) {
+        console.error(error);
+        alert("Aktarım tamamlanamadı: " + (error.user ? error.message : friendlyError(error)) + "\n\nYedek dosyanız değişmedi; işlemi tekrar deneyebilirsiniz.");
+      } finally {
+        document.body.classList.remove("busy");
       }
     };
     reader.onerror = () => {
@@ -2405,22 +2635,146 @@
     reader.readAsText(file);
   });
 
-  document.getElementById("reset-all").addEventListener("click", () => {
+  // Yedeği (eski tarayıcı sürümünün yedeği dahil) buluta yazar.
+  async function importBackup(data) {
+    const tmp = {
+      materials: clone(data.materials || []),
+      products: clone(data.products || []),
+      production: clone(data.production || []).map(withoutBucket),
+      movements: clone(data.movements || []).map(withoutBucket),
+      counts: clone(data.counts || []).map(withoutBucket),
+      slipSeq: num(data.slipSeq),
+      settings: {},
+      users: []
+    };
+
+    // Eski kayıtları mevcut kurallarla düzenle (fiş numarası, parti stokları, koli içi adet).
+    const saved = db;
+    db = tmp;
+    try {
+      migrateSlipNumbers();
+      tmp.materials.forEach(ensureLots);
+      tmp.products.forEach(ensureLots);
+      tmp.products.forEach(p => { if (p.perCase === undefined) p.perCase = 60; });
+    } finally {
+      db = saved;
+    }
+
+    // Kayıtları aylara, her ayı ~0,7 MB'lık parçalara böl. En yeni kayıtlar en yüksek parça numarasına gider.
+    const monthOf = r => /^\d{4}-\d{2}/.test(String(r.date || "")) ? String(r.date).slice(0, 7) : monthKey();
+    const groups = new Map();
+    LOG_TYPES.forEach(t => tmp[t].forEach(r => {
+      const m = monthOf(r);
+      if (!groups.has(m)) groups.set(m, emptyLog());
+      groups.get(m)[t].push(r);
+    }));
+
+    const docs = [];
+    let head = null;
+    for (const [m, g] of groups) {
+      const chunks = [];
+      let cur = emptyLog();
+      let size = 0;
+      for (const t of LOG_TYPES) {
+        for (const r of g[t]) {
+          const s = sizeOf(r);
+          if (size + s > LOG_DOC_LIMIT && size > 0) {
+            chunks.push(cur);
+            cur = emptyLog();
+            size = 0;
+          }
+          cur[t].push(r);
+          size += s;
+        }
+      }
+      chunks.push(cur);
+      chunks.forEach((chunk, i) => {
+        const logId = partId(m, chunks.length - 1 - i);
+        LOG_TYPES.forEach(t => chunk[t].forEach(r => { r.bucket = logId; }));
+        docs.push([logId, chunk]);
+      });
+      if (m === monthKey()) head = partId(m, chunks.length - 1);
+    }
+
+    const stamp = new Date().toISOString();
+    const newIds = new Set(docs.map(([logId]) => logId));
+    const existing = await getDocs(logsCol);
+
+    // Önce yeni kayıtları yaz, sonra artık kullanılmayan eski parçaları sil.
+    let batch = writeBatch(fs);
+    let ops = 0;
+    let bytes = 0;
+    const flush = async () => {
+      if (ops) await batch.commit();
+      batch = writeBatch(fs);
+      ops = 0;
+      bytes = 0;
+    };
+    for (const [logId, chunk] of docs) {
+      const s = sizeOf(chunk);
+      if (ops && (ops >= 20 || bytes + s > 4000000)) await flush();
+      batch.set(logRef(logId), { ...chunk, updatedAt: stamp });
+      ops++;
+      bytes += s;
+    }
+    await flush();
+    for (const d of existing.docs) {
+      if (newIds.has(d.id)) continue;
+      batch.delete(d.ref);
+      ops++;
+      if (ops >= 400) await flush();
+    }
+    await flush();
+
+    await setDoc(stateRef, {
+      materials: tmp.materials,
+      products: tmp.products,
+      slipSeq: tmp.slipSeq,
+      logHead: head,
+      updatedAt: stamp,
+      updatedBy: actor()
+    });
+
+    // Firma bilgileri ve logo da yedekte varsa aktarılır.
+    if (data.settings && typeof data.settings === "object" && !Array.isArray(data.settings)) {
+      const patch = {};
+      SETTINGS_FIELDS.forEach(k => { if (typeof data.settings[k] === "string") patch[k] = data.settings[k]; });
+      if (typeof data.settings.logo === "string" && data.settings.logo.length <= 600000) patch.logo = data.settings.logo;
+      if (Object.keys(patch).length) await setDoc(settingsRef, patch, { merge: true });
+    }
+  }
+
+  document.getElementById("reset-all").addEventListener("click", async () => {
     if (!isAdmin()) return;
-    if (!confirm("Tüm ürünler, hammaddeler, reçeteler, stoklar, kayıtlar ve kullanıcı hesapları silinsin mi?")) return;
-    if (!confirm("Bu işlem geri alınamaz. Emin misiniz?")) return;
-    localStorage.removeItem(STORAGE_KEY);
-    // Diğer açık sekmeler eski veriyi geri yazmasın diye sürüm numarasını artır.
-    localStorage.setItem(REV_KEY, String((Number(localStorage.getItem(REV_KEY)) || 0) + 1));
-    sessionStorage.removeItem(SESSION_KEY);
-    location.reload();
+    if (!confirm("Tüm ürünler, hammaddeler, reçeteler, stoklar ve kayıtlar buluttan silinsin mi?\n\nKullanıcı hesapları ve firma bilgileri korunur.")) return;
+    if (!confirm("Bu işlem geri alınamaz. Devam etmeden önce yedek aldınız mı? Silme işlemi başlatılsın mı?")) return;
+
+    document.body.classList.add("busy");
+    try {
+      const existing = await getDocs(logsCol);
+      let batch = writeBatch(fs);
+      let ops = 0;
+      for (const d of existing.docs) {
+        batch.delete(d.ref);
+        if (++ops >= 400) {
+          await batch.commit();
+          batch = writeBatch(fs);
+          ops = 0;
+        }
+      }
+      if (ops) await batch.commit();
+      await setDoc(stateRef, { materials: [], products: [], slipSeq: 0, logHead: null, updatedAt: new Date().toISOString(), updatedBy: actor() });
+      alert("Tüm üretim ve depo verileri silindi.");
+    } catch (error) {
+      console.error(error);
+      alert(friendlyError(error));
+    } finally {
+      document.body.classList.remove("busy");
+    }
   });
 
-
-  // ================= Kullanıcı girişi ve yetkiler =================
-  // Not: Veriler bu tarayıcıda durduğu için giriş ekranı yetkisiz kullanımı engeller;
-  // tarayıcı geliştirici araçlarına erişen birine karşı tam güvenlik sağlamaz.
-  const SESSION_KEY = "uretim_depo_oturum";
+  // ================= Kullanıcı girişi ve yetkiler (Firebase Authentication) =================
+  // Yetkiler hem ekranda hem de Firestore güvenlik kurallarında kontrol edilir.
   const PERMISSIONS = [
     ["materials", "Hammaddeler"],
     ["products", "Ürünler"],
@@ -2430,103 +2784,58 @@
     ["history", "Kayıtlar"],
     ["cancelSlip", "Üretim fişi iptali"]
   ];
-  let currentUser = null;
+  let currentUser = null;      // { id (uid), name, username, role, perms, active }
+  let appEntered = false;
+  let suppressAuth = false;    // ilk kurulum sırasında oturum olayını geçici olarak yok say
 
-  const isAdmin = () => currentUser?.role === "admin";
+  const isAdmin = () => currentUser?.role === "admin" && currentUser?.active !== false;
   const can = perm => !!currentUser && (isAdmin() || (currentUser.perms || []).includes(perm));
   const canTab = tab => !!currentUser && (tab === "dashboard" || (tab === "users" ? isAdmin() : can(tab)));
   const actor = () => currentUser?.name || "";
   const activeAdmins = () => db.users.filter(u => u.role === "admin" && u.active !== false);
-
-  // --- Şifre özeti: PBKDF2 (WebCrypto), yoksa tuzlu ve yinelenmiş SHA-256 ---
-  function sha256Hex(text) {
-    const K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
-    const bytes = new TextEncoder().encode(text);
-    const bitLen = bytes.length * 8;
-    const padded = new Uint8Array(((bytes.length + 9 + 63) >> 6) << 6);
-    padded.set(bytes);
-    padded[bytes.length] = 0x80;
-    const view = new DataView(padded.buffer);
-    view.setUint32(padded.length - 4, bitLen >>> 0);
-    view.setUint32(padded.length - 8, Math.floor(bitLen / 2 ** 32));
-    const H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
-    const W = new Uint32Array(64);
-    const rotr = (x, n) => (x >>> n) | (x << (32 - n));
-    for (let off = 0; off < padded.length; off += 64) {
-      for (let i = 0; i < 16; i++) W[i] = view.getUint32(off + i * 4);
-      for (let i = 16; i < 64; i++) {
-        const s0 = rotr(W[i-15], 7) ^ rotr(W[i-15], 18) ^ (W[i-15] >>> 3);
-        const s1 = rotr(W[i-2], 17) ^ rotr(W[i-2], 19) ^ (W[i-2] >>> 10);
-        W[i] = (W[i-16] + s0 + W[i-7] + s1) >>> 0;
-      }
-      let [a, b, c, d, e, f, g, h] = H;
-      for (let i = 0; i < 64; i++) {
-        const t1 = (h + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + W[i]) >>> 0;
-        const t2 = ((rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) >>> 0;
-        h = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0;
-      }
-      [a, b, c, d, e, f, g, h].forEach((v, i) => { H[i] = (H[i] + v) >>> 0; });
-    }
-    return H.map(v => v.toString(16).padStart(8, "0")).join("");
-  }
-
-  const randomHex = (bytes = 16) =>
-    [...crypto.getRandomValues(new Uint8Array(bytes))].map(b => b.toString(16).padStart(2, "0")).join("");
-
-  async function derive(password, salt, algo) {
-    if (algo === "pbkdf2") {
-      const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
-      const bits = await crypto.subtle.deriveBits(
-        { name: "PBKDF2", hash: "SHA-256", salt: new TextEncoder().encode(salt), iterations: 120000 }, key, 256);
-      return [...new Uint8Array(bits)].map(b => b.toString(16).padStart(2, "0")).join("");
-    }
-    let h = sha256Hex(salt + ":" + password);
-    for (let i = 0; i < 5000; i++) h = sha256Hex(h + salt);
-    return h;
-  }
-
-  async function makePassword(password) {
-    const salt = randomHex();
-    const algo = window.crypto?.subtle ? "pbkdf2" : "sha256i";
-    return { salt, algo, hash: await derive(password, salt, algo) };
-  }
-
-  async function checkPassword(user, password) {
-    if (user.algo === "pbkdf2" && !window.crypto?.subtle) {
-      alert("Bu tarayıcı ortamında şifre doğrulanamıyor. Dosyayı doğrudan (çift tıklayarak) açmayı deneyin.");
-      return false;
-    }
-    return (await derive(password, user.salt, user.algo)) === user.hash;
-  }
+  const nowText = () => new Date().toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" });
 
   const findUser = username => db.users.find(u => normalize(u.username) === normalize(username));
   const validUsername = name => /^[a-zA-Z0-9._-]{3,30}$/.test(name);
   const roleText = u => u.role === "admin" ? "Yönetici" : "Kullanıcı";
 
-  function showAuth(mode) {
+  function showAuth(mode, message = "") {
     renderBranding();
+    appEntered = false;
     document.body.classList.add("locked");
     document.getElementById("auth-screen").classList.remove("hidden");
     document.getElementById("auth-logo").src = settings().logo || DEFAULT_LOGO;
     document.getElementById("login-form").classList.toggle("hidden", mode !== "login");
     document.getElementById("setup-form").classList.toggle("hidden", mode !== "setup");
     document.getElementById("auth-subtitle").textContent =
-      mode === "setup" ? "Hoş geldiniz" : "Devam etmek için giriş yapın";
+      mode === "setup" ? "Hoş geldiniz" : mode === "loading" ? message || "Bağlanıyor…" : "Devam etmek için giriş yapın";
+    if (mode === "login") document.getElementById("login-error").textContent = message;
+    if (mode === "setup") document.getElementById("setup-error").textContent = message;
     const first = document.querySelector(`#${mode}-form input`);
     if (first) setTimeout(() => first.focus(), 0);
   }
 
-  function enterApp(user) {
-    currentUser = user;
-    sessionStorage.setItem(SESSION_KEY, user.id);
+  async function showLoginOrSetup(message = "") {
+    try {
+      const setup = await getDoc(setupRef);
+      showAuth(setup.exists() ? "login" : "setup", message);
+    } catch (error) {
+      console.error(error);
+      showAuth("login", message || "Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edin.");
+    }
+  }
+
+  function enterApp() {
+    appEntered = true;
     document.getElementById("auth-screen").classList.add("hidden");
     document.body.classList.remove("locked");
     applyPermissions();
-    showTab("dashboard");
+    showTab(document.querySelector("nav button.active")?.dataset.tab || "dashboard");
   }
 
-  function logout() {
-    sessionStorage.removeItem(SESSION_KEY);
+  async function logout() {
+    stopSync();
+    try { await signOut(auth); } catch (error) { console.error(error); }
     location.reload();
   }
 
@@ -2537,6 +2846,7 @@
     document.getElementById("user-bar").innerHTML = currentUser ? `
       <span><b>${esc(currentUser.name)}</b></span>
       <span class="role">${roleText(currentUser)}</span>
+      <span class="sync-status" title="Veriler bulutta saklanır">● Bulut</span>
       <button type="button" id="change-own-password">Şifremi değiştir</button>
       <button type="button" id="logout">Çıkış</button>` : "";
     const active = document.querySelector("nav button.active")?.dataset.tab;
@@ -2545,157 +2855,158 @@
 
   document.getElementById("user-bar").addEventListener("click", event => {
     if (event.target.id === "logout") logout();
-    if (event.target.id === "change-own-password") openPasswordDialog(currentUser, true);
+    if (event.target.id === "change-own-password") openPasswordDialog();
   });
 
-  function initAuth() {
-    if (!db.users.length) return showAuth("setup");
-    const user = byId(db.users, sessionStorage.getItem(SESSION_KEY));
-    if (user && user.active !== false) return enterApp(user);
-    showAuth("login");
+  // ---------- Canlı veri senkronizasyonu ----------
+  let unsubscribers = [];
+  let stateData = null;
+  let settingsData = {};
+  let usersList = [];
+  let logDocs = new Map();
+  let loaded = {};
+
+  function stopSync() {
+    unsubscribers.forEach(stop => stop());
+    unsubscribers = [];
+    loaded = {};
+  }
+
+  function startSync() {
+    stopSync();
+    loaded = { state: false, logs: false, users: false, settings: false };
+    const fail = error => {
+      console.error(error);
+      if (String(error?.code || "").includes("permission-denied")) {
+        alert("Verilere erişim izniniz yok. Hesabınız pasif yapılmış olabilir.");
+        logout();
+      } else {
+        alert("Sunucu bağlantısında sorun oluştu: " + (error?.message || error));
+      }
+    };
+    unsubscribers.push(onSnapshot(stateRef, snap => {
+      stateData = snap.exists() ? snap.data() : null;
+      loaded.state = true;
+      rebuild();
+    }, fail));
+    unsubscribers.push(onSnapshot(logsCol, snap => {
+      logDocs = new Map(snap.docs.map(d => [d.id, d.data()]));
+      loaded.logs = true;
+      rebuild();
+    }, fail));
+    unsubscribers.push(onSnapshot(usersCol, snap => {
+      usersList = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+      loaded.users = true;
+      const me = currentUser && usersList.find(u => u.id === currentUser.id);
+      if (currentUser && (!me || me.active === false)) {
+        alert("Hesabınız pasif yapıldı veya silindi. Oturum kapatılıyor.");
+        logout();
+        return;
+      }
+      if (me) currentUser = me;
+      rebuild();
+    }, fail));
+    unsubscribers.push(onSnapshot(settingsRef, snap => {
+      settingsData = snap.exists() ? snap.data() : {};
+      loaded.settings = true;
+      rebuild();
+    }, fail));
+  }
+
+  // Sunucudan gelen parçaları uygulamanın kullandığı tek "db" nesnesinde birleştirir.
+  function rebuild() {
+    if (!Object.keys(loaded).length || !Object.values(loaded).every(Boolean)) return;
+    const st = stateData || {};
+    const ids = [...logDocs.keys()].sort().reverse();
+    const pick = t => ids.flatMap(bucket => (logDocs.get(bucket)[t] || []).map(r => ({ ...r, bucket })));
+    db = {
+      materials: clone(st.materials || []),
+      products: clone(st.products || []),
+      slipSeq: num(st.slipSeq),
+      logHead: st.logHead || null,
+      movements: pick("movements"),
+      production: pick("production"),
+      counts: pick("counts"),
+      settings: { ...settingsData },
+      users: usersList
+    };
+    db.materials.forEach(ensureLots);
+    db.products.forEach(ensureLots);
+    db.products.forEach(p => { if (p.perCase === undefined) p.perCase = 60; });
+
+    if (!appEntered) {
+      enterApp();
+    } else {
+      applyPermissions();
+      render();
+    }
+  }
+
+  // ---------- Oturum ----------
+  async function handleSignedIn(user) {
+    showAuth("loading", "Hesap bilgileri yükleniyor…");
+    try {
+      const snap = await getDoc(userRef(user.uid));
+      if (!snap.exists()) {
+        await signOut(auth);
+        return showLoginOrSetup("Bu hesap için kullanıcı kaydı bulunamadı. Yöneticinize başvurun.");
+      }
+      const profile = { ...snap.data(), id: user.uid };
+      if (profile.active === false) {
+        await signOut(auth);
+        return showLoginOrSetup("Bu hesap pasif. Yöneticinize başvurun.");
+      }
+      currentUser = profile;
+      updateDoc(userRef(user.uid), { lastLogin: nowText() }).catch(error => console.error(error));
+      showAuth("loading", "Veriler yükleniyor…");
+      startSync();
+    } catch (error) {
+      console.error(error);
+      await signOut(auth).catch(() => {});
+      showLoginOrSetup("Giriş tamamlanamadı: " + friendlyError(error));
+    }
   }
 
   document.getElementById("setup-form").addEventListener("submit", async event => {
     event.preventDefault();
-    const f = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const f = new FormData(form);
     const error = document.getElementById("setup-error");
     const name = f.get("name").trim();
-    const username = f.get("username").trim();
+    const username = f.get("username").trim().toLowerCase();
     const password = f.get("password");
 
-    if (db.users.length) return location.reload();
     if (!name) return (error.textContent = "Ad soyad girin.");
     if (!validUsername(username)) return (error.textContent = "Kullanıcı adı 3-30 karakter olmalı; harf, rakam, nokta, tire veya alt çizgi içerebilir.");
     if (password.length < 6) return (error.textContent = "Şifre en az 6 karakter olmalı.");
     if (password !== f.get("password2")) return (error.textContent = "Şifreler aynı değil.");
 
-    const user = { id: id(), name, username, role: "admin", perms: [], active: true, createdAt: today(), ...(await makePassword(password)) };
-    db.users.push(user);
-    if (!save()) return;
-    enterApp(user);
-  });
-
-  // --- Hatalı şifre blokesi ---
-  // Kullanıcı: 3 hatalı denemede bloke olur, yalnızca yönetici kaldırır.
-  // Yönetici: kimse dışarıda kalmasın diye 15 dakikalık geçici bloke alır.
-  const MAX_ATTEMPTS = 3;
-  const ADMIN_LOCK_MINUTES = 15;
-  const nowText = () => new Date().toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" });
-
-  // Süresi dolan geçici blokeyi kaldırır; hesap hâlâ blokeliyse true döner.
-  function isLocked(user) {
-    if (!user.locked) return false;
-    if (user.lockUntil && Date.now() >= user.lockUntil) {
-      unlockUser(user, "Süre doldu");
-      if (!save()) return;
-      return false;
-    }
-    return true;
-  }
-
-  function unlockUser(user, by) {
-    user.locked = false;
-    user.failedAttempts = 0;
-    delete user.lockUntil;
-    delete user.lockedAt;
-    (db.notifications || []).filter(n => n.userId === user.id && !n.resolved).forEach(n => {
-      n.resolved = true;
-      n.resolvedBy = by;
-      n.resolvedAt = nowText();
-    });
-  }
-
-  function notifyAdmins(user) {
-    db.notifications ||= [];
-    db.notifications.unshift({
-      id: id(),
-      type: "lock",
-      userId: user.id,
-      userName: user.name,
-      username: user.username,
-      role: user.role,
-      at: nowText(),
-      temporary: !!user.lockUntil,
-      read: false,
-      resolved: false
-    });
-    db.notifications = db.notifications.slice(0, 200);
-  }
-
-  function registerFailure(user) {
-    user.failedAttempts = num(user.failedAttempts) + 1;
-    user.lastFailedAt = nowText();
-    if (user.failedAttempts < MAX_ATTEMPTS) return MAX_ATTEMPTS - user.failedAttempts;
-
-    user.locked = true;
-    user.lockedAt = nowText();
-    if (user.role === "admin") user.lockUntil = Date.now() + ADMIN_LOCK_MINUTES * 60000;
-    notifyAdmins(user);
-    return 0;
-  }
-
-  function lockMessage(user) {
-    if (user.lockUntil) {
-      const minutes = Math.max(1, Math.ceil((user.lockUntil - Date.now()) / 60000));
-      return `Hesabınız ${MAX_ATTEMPTS} hatalı şifre denemesi nedeniyle geçici olarak bloke edildi. ${minutes} dakika sonra tekrar deneyin. Durum diğer yöneticilere bildirildi.`;
-    }
-    return `Hesabınız ${MAX_ATTEMPTS} hatalı şifre denemesi nedeniyle bloke edildi. Durum yöneticiye bildirildi; blokenin kaldırılması için yöneticinize başvurun.`;
-  }
-
-  const unreadLocks = () => (db.notifications || []).filter(n => !n.resolved && !n.read);
-
-  function renderAdminAlerts() {
-    const box = document.getElementById("admin-alerts");
-    const usersButton = document.querySelector('nav button[data-tab="users"]');
-    const pending = isAdmin() ? (db.notifications || []).filter(n => !n.resolved && byId(db.users, n.userId)?.locked) : [];
-
-    usersButton.innerHTML = "Kullanıcılar" + (pending.length ? `<span class="nav-count">${pending.length}</span>` : "");
-
-    const unread = isAdmin() ? unreadLocks() : [];
-    box.innerHTML = unread.length ? `<div class="alert-box">
-        <h3>Güvenlik bildirimi: bloke olan hesap${unread.length > 1 ? "lar" : ""}</h3>
-        <ul>${unread.map(n => `<li><b>${esc(n.userName)}</b> (${esc(n.username)}) — ${esc(n.at)} tarihinde ${MAX_ATTEMPTS} hatalı şifre denemesi nedeniyle
-          ${n.temporary ? `${ADMIN_LOCK_MINUTES} dakikalığına` : ""} bloke oldu.</li>`).join("")}</ul>
-        <div class="button-row" style="margin:0">
-          <button type="button" class="primary" id="alerts-go-users">Kullanıcılara git</button>
-          <button type="button" class="secondary" id="alerts-dismiss">Okundu olarak işaretle</button>
-        </div>
-      </div>` : "";
-    box.insertAdjacentHTML("beforeend", isAdmin() ? dataHealthAlert() : "");
-  }
-
-  // Yedek hatırlatıcısı ve tarayıcı depolama doluluğu uyarısı (yalnızca yöneticiye).
-  function dataHealthAlert() {
-    const hasData = db.materials.length || db.products.length || db.movements.length;
-    const msgs = [];
-    if (hasData) {
-      const days = db.lastBackup
-        ? Math.floor((new Date(today()) - new Date(db.lastBackup)) / 86400000)
-        : null;
-      if (days === null) msgs.push("Henüz hiç yedek alınmadı.");
-      else if (days >= BACKUP_REMIND_DAYS) msgs.push(`Son yedek ${days} gün önce alındı (${esc(fmtDate(db.lastBackup))}).`);
-    }
-    const used = (localStorage.getItem(STORAGE_KEY) || "").length * 2; // UTF-16: karakter başına ~2 bayt
-    const pct = Math.round((used / STORAGE_LIMIT) * 100);
-    if (pct >= 70) msgs.push(`Tarayıcı depolama alanının yaklaşık %${pct}'i dolu. Dolduğunda yeni kayıt yapılamaz; yedek alıp eski kayıtları arşivlemeyi planlayın.`);
-    if (!msgs.length) return "";
-    return `<div class="alert-box">
-        <h3>Veri güvenliği hatırlatması</h3>
-        <ul>${msgs.map(m => `<li>${m}</li>`).join("")}</ul>
-        <p class="muted" style="margin:0 0 8px">Veriler yalnızca bu tarayıcıda saklanır. Tarayıcı verileri silinirse kayıtlar kaybolur.</p>
-        <div class="button-row" style="margin:0">
-          <button type="button" class="primary" id="alerts-backup">Şimdi yedek indir</button>
-        </div>
-      </div>`;
-  }
-
-  document.getElementById("admin-alerts").addEventListener("click", event => {
-    if (event.target.id === "alerts-go-users") showTab("users");
-    if (event.target.id === "alerts-backup") document.getElementById("backup").click();
-    if (event.target.id === "alerts-dismiss") {
-      unreadLocks().forEach(n => { n.read = true; });
-      if (!save()) return;
-      renderAdminAlerts();
+    const button = form.querySelector("button");
+    button.disabled = true;
+    error.textContent = "Hesap oluşturuluyor…";
+    suppressAuth = true;
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, usernameToEmail(username), password);
+      const batch = writeBatch(fs);
+      batch.set(userRef(cred.user.uid), { name, username, role: "admin", perms: [], active: true, createdAt: today() });
+      batch.set(setupRef, { done: true, at: new Date().toISOString() });
+      await batch.commit();
+      suppressAuth = false;
+      form.reset();
+      error.textContent = "";
+      await handleSignedIn(cred.user);
+    } catch (e) {
+      console.error(e);
+      suppressAuth = false;
+      if (auth.currentUser) await signOut(auth).catch(() => {});
+      const code = String(e?.code || "");
+      error.textContent = code.includes("email-already-in-use")
+        ? "Bu kullanıcı adı zaten kayıtlı. Sayfayı yenileyip giriş yapmayı deneyin."
+        : code.includes("permission-denied")
+          ? "Kurulum daha önce yapılmış. Sayfayı yenileyip giriş yapın."
+          : "Hesap oluşturulamadı: " + friendlyError(e);
+    } finally {
+      button.disabled = false;
     }
   });
 
@@ -2704,53 +3015,38 @@
     const form = event.currentTarget;
     const f = new FormData(form);
     const error = document.getElementById("login-error");
+    const username = f.get("username").trim();
+    const password = f.get("password");
     error.textContent = "";
 
-    error.classList.remove("warn");
-    const user = findUser(f.get("username").trim());
     const clearPassword = () => { form.password.value = ""; form.password.focus(); };
-
-    if (!user) {
+    if (!validUsername(username)) {
       error.textContent = "Kullanıcı adı veya şifre hatalı.";
       return clearPassword();
     }
-    if (isLocked(user)) {
-      error.textContent = lockMessage(user);
-      return clearPassword();
-    }
 
-    if (!(await checkPassword(user, f.get("password")))) {
-      const left = registerFailure(user);
-      if (!save()) return;
-      if (left > 0) {
-        error.textContent = "Kullanıcı adı veya şifre hatalı.";
-      } else {
-        error.textContent = lockMessage(user);
-        alert(lockMessage(user));
-      }
-      return clearPassword();
+    const button = form.querySelector("button");
+    button.disabled = true;
+    try {
+      await signInWithEmailAndPassword(auth, usernameToEmail(username), password);
+      form.reset();
+    } catch (e) {
+      const code = String(e?.code || "");
+      error.textContent = code.includes("too-many-requests")
+        ? "Çok fazla hatalı deneme yapıldı; hesap geçici olarak kilitlendi. Birkaç dakika sonra tekrar deneyin."
+        : code.includes("network")
+          ? "Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edin."
+          : "Kullanıcı adı veya şifre hatalı.";
+      clearPassword();
+    } finally {
+      button.disabled = false;
     }
-
-    if (user.active === false) {
-      error.textContent = "Bu hesap pasif. Yöneticinize başvurun.";
-      return;
-    }
-    user.failedAttempts = 0;
-    user.lastLogin = nowText();
-    if (!save()) return;
-    form.reset();
-    enterApp(user);
   });
 
-  // --- Şifre belirleme / değiştirme penceresi ---
-  function openPasswordDialog(user, own) {
+  // ---------- Kendi şifresini değiştirme ----------
+  function openPasswordDialog() {
     const form = document.getElementById("password-form");
     form.reset();
-    form.userId.value = user.id;
-    form.dataset.own = own ? "1" : "";
-    document.getElementById("password-title").textContent = own ? "Şifremi değiştir" : `Şifre belirle: ${user.name}`;
-    document.getElementById("current-password-wrap").classList.toggle("hidden", !own);
-    form.current.required = own;
     document.getElementById("password-error").textContent = "";
     document.getElementById("password-dialog").showModal();
   }
@@ -2763,34 +3059,59 @@
     event.preventDefault();
     const form = event.currentTarget;
     const error = document.getElementById("password-error");
-    const user = byId(db.users, form.userId.value);
-    const own = form.dataset.own === "1";
+    const user = auth.currentUser;
     if (!user) return;
-    if (!own && !isAdmin()) return;
-
-    if (own && !(await checkPassword(user, form.current.value))) {
-      const left = registerFailure(user);
-      if (!save()) return;
-      if (left > 0) return (error.textContent = `Mevcut şifre hatalı. Kalan deneme hakkınız: ${left}.`);
-      document.getElementById("password-dialog").close();
-      alert(lockMessage(user) + " Oturumunuz kapatılıyor.");
-      return logout();
-    }
     if (form.password.value.length < 6) return (error.textContent = "Yeni şifre en az 6 karakter olmalı.");
     if (form.password.value !== form.password2.value) return (error.textContent = "Yeni şifreler aynı değil.");
 
-    Object.assign(user, await makePassword(form.password.value));
-    if (own) user.failedAttempts = 0;
-    const wasLocked = !own && user.locked;
-    if (!own) unlockUser(user, actor());
-    if (!save()) return;
-    document.getElementById("password-dialog").close();
-    renderUsers();
-    renderAdminAlerts();
-    alert(own ? "Şifreniz değiştirildi." : `${user.name} kullanıcısının şifresi kaydedildi.${wasLocked ? " Hesap blokesi de kaldırıldı." : ""}`);
+    error.textContent = "Kaydediliyor…";
+    try {
+      await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, form.current.value));
+      await updatePassword(user, form.password.value);
+      document.getElementById("password-dialog").close();
+      alert("Şifreniz değiştirildi.");
+    } catch (e) {
+      const code = String(e?.code || "");
+      error.textContent = code.includes("wrong-password") || code.includes("invalid-credential") || code.includes("invalid-login")
+        ? "Mevcut şifre hatalı."
+        : code.includes("too-many-requests")
+          ? "Çok fazla hatalı deneme. Birkaç dakika sonra tekrar deneyin."
+          : code.includes("weak-password")
+            ? "Yeni şifre çok zayıf; en az 6 karakter kullanın."
+            : "Şifre değiştirilemedi: " + friendlyError(e);
+    }
   });
 
-  // --- Kullanıcı yönetimi (yalnızca yönetici) ---
+  // ---------- Yedek hatırlatıcısı (yalnızca yöneticiye) ----------
+  function renderAdminAlerts() {
+    const box = document.getElementById("admin-alerts");
+    box.innerHTML = isAdmin() ? dataHealthAlert() : "";
+  }
+
+  function dataHealthAlert() {
+    const hasData = db.materials.length || db.products.length || db.movements.length;
+    if (!hasData) return "";
+    const last = db.settings.lastBackup;
+    const days = last ? Math.floor((new Date(today()) - new Date(last)) / 86400000) : null;
+    let message = "";
+    if (days === null) message = "Henüz hiç yedek alınmadı.";
+    else if (days >= BACKUP_REMIND_DAYS) message = `Son yedek ${days} gün önce alındı (${esc(fmtDate(last))}).`;
+    if (!message) return "";
+    return `<div class="alert-box">
+        <h3>Yedek hatırlatması</h3>
+        <ul><li>${message}</li></ul>
+        <p class="muted" style="margin:0 0 8px">Veriler bulutta saklanıyor; ancak ücretsiz planda otomatik yedek yok. Haftada bir yedek indirip saklamanız önerilir.</p>
+        <div class="button-row" style="margin:0">
+          <button type="button" class="primary" id="alerts-backup">Şimdi yedek indir</button>
+        </div>
+      </div>`;
+  }
+
+  document.getElementById("admin-alerts").addEventListener("click", event => {
+    if (event.target.id === "alerts-backup") document.getElementById("backup").click();
+  });
+
+  // ---------- Kullanıcı yönetimi (yalnızca yönetici) ----------
   document.getElementById("perm-list").innerHTML = PERMISSIONS.map(([key, label]) =>
     `<label><input type="checkbox" name="perm" value="${key}"> ${label}</label>`).join("");
 
@@ -2804,12 +3125,27 @@
     const form = document.getElementById("user-form");
     form.reset();
     form.id.value = "";
+    form.username.disabled = false;
     document.getElementById("user-form-title").textContent = "Kullanıcı Ekle";
     document.getElementById("user-password-wrap").classList.remove("hidden");
     document.getElementById("user-cancel-edit").classList.add("hidden");
     syncRoleFields();
   }
   document.getElementById("user-cancel-edit").addEventListener("click", resetUserForm);
+
+  // Yönetici oturumu kapanmadan yeni kullanıcı açmak için ikinci, geçici bir Firebase bağlantısı kullanılır.
+  async function createAuthAccount(username, password) {
+    const secondary = initializeApp(firebaseConfig, "kullanici-olustur-" + Date.now());
+    try {
+      const secondaryAuth = getAuth(secondary);
+      await setPersistence(secondaryAuth, inMemoryPersistence);
+      const cred = await createUserWithEmailAndPassword(secondaryAuth, usernameToEmail(username), password);
+      await signOut(secondaryAuth);
+      return cred.user.uid;
+    } finally {
+      await deleteApp(secondary).catch(() => {});
+    }
+  }
 
   document.getElementById("user-form").addEventListener("submit", async event => {
     event.preventDefault();
@@ -2818,39 +3154,52 @@
     const f = new FormData(form);
     const editing = byId(db.users, f.get("id"));
     const name = f.get("name").trim();
-    const username = f.get("username").trim();
+    const username = (editing ? editing.username : (f.get("username") || "")).trim().toLowerCase();
     const role = f.get("role") === "admin" ? "admin" : "user";
     const perms = role === "admin" ? [] : f.getAll("perm");
     const active = form.active.checked;
 
     if (!name) return alert("Ad soyad girin.");
-    if (!validUsername(username)) return alert("Kullanıcı adı 3-30 karakter olmalı; harf, rakam, nokta, tire veya alt çizgi içerebilir.");
+    if (!editing && !validUsername(username)) return alert("Kullanıcı adı 3-30 karakter olmalı; harf, rakam, nokta, tire veya alt çizgi içerebilir.");
     const sameName = findUser(username);
-    if (sameName && sameName !== editing) return alert("Bu kullanıcı adı zaten kullanılıyor.");
+    if (!editing && sameName) return alert("Bu kullanıcı adı zaten kullanılıyor.");
 
-    if (editing) {
-      const losesAdmin = editing.role === "admin" && (role !== "admin" || !active);
-      if (losesAdmin && activeAdmins().length <= 1) return alert("Sistemde en az bir aktif yönetici kalmalı.");
-      if (editing.id === currentUser.id && !active) return alert("Kendi hesabınızı pasif yapamazsınız.");
-      Object.assign(editing, { name, username, role, perms, active });
-    } else {
-      const password = f.get("password");
-      if (password.length < 6) return alert("Şifre en az 6 karakter olmalı.");
-      if (role === "user" && !perms.length && !confirm("Bu kullanıcıya hiçbir bölüm yetkisi verilmedi; yalnızca Genel Bakış'ı görebilecek. Devam edilsin mi?")) return;
-      db.users.push({ id: id(), name, username, role, perms, active, createdAt: today(), ...(await makePassword(password)) });
+    const button = document.getElementById("user-submit");
+    button.disabled = true;
+    try {
+      if (editing) {
+        const losesAdmin = editing.role === "admin" && (role !== "admin" || !active);
+        if (losesAdmin && activeAdmins().length <= 1) return alert("Sistemde en az bir aktif yönetici kalmalı.");
+        if (editing.id === currentUser.id && !active) return alert("Kendi hesabınızı pasif yapamazsınız.");
+        await updateDoc(userRef(editing.id), { name, role, perms, active });
+      } else {
+        const password = f.get("password");
+        if (password.length < 6) return alert("Şifre en az 6 karakter olmalı.");
+        if (role === "user" && !perms.length && !confirm("Bu kullanıcıya hiçbir bölüm yetkisi verilmedi; yalnızca Genel Bakış'ı görebilecek. Devam edilsin mi?")) return;
+        let uid;
+        try {
+          uid = await createAuthAccount(username, password);
+        } catch (e) {
+          const code = String(e?.code || "");
+          if (code.includes("email-already-in-use")) {
+            return alert("Bu kullanıcı adı Firebase'de zaten kayıtlı.\n\nDaha önce silinmiş bir kullanıcıysa, Firebase konsolunda Authentication → Users bölümünden de silin ve tekrar deneyin.");
+          }
+          if (code.includes("weak-password")) return alert("Şifre çok zayıf; en az 6 karakter kullanın.");
+          throw e;
+        }
+        await setDoc(userRef(uid), { name, username, role, perms, active, createdAt: today() });
+      }
+      resetUserForm();
+      alert(editing ? "Kullanıcı güncellendi." : `Kullanıcı eklendi.\n\nKullanıcı adı: ${username}\nŞifreyi kullanıcıya iletin; ilk girişten sonra "Şifremi değiştir" ile değiştirebilir.`);
+    } catch (e) {
+      console.error(e);
+      alert(friendlyError(e));
+    } finally {
+      button.disabled = false;
     }
-
-    if (!save()) return;
-    if (editing?.id === currentUser.id) {
-      currentUser = editing;
-      applyPermissions();
-    }
-    resetUserForm();
-    renderUsers();
-    alert(editing ? "Kullanıcı güncellendi." : "Kullanıcı eklendi.");
   });
 
-  document.getElementById("users-table").addEventListener("click", event => {
+  document.getElementById("users-table").addEventListener("click", async event => {
     const button = event.target.closest("[data-user-action]");
     if (!button || !isAdmin()) return;
     const user = byId(db.users, button.dataset.id);
@@ -2862,6 +3211,7 @@
       form.id.value = user.id;
       form.name.value = user.name;
       form.username.value = user.username;
+      form.username.disabled = true;
       form.role.value = user.role;
       form.active.checked = user.active !== false;
       form.querySelectorAll('[name="perm"]').forEach(c => { c.checked = (user.perms || []).includes(c.value); });
@@ -2873,61 +3223,51 @@
       return;
     }
 
-    if (action === "password") return openPasswordDialog(user, false);
-
-    if (action === "unlock") {
-      if (!confirm(`“${user.name}” kullanıcısının blokesi kaldırılsın mı? Şifre de unutulduysa “Şifre belirle” ile yeni şifre verebilirsiniz.`)) return;
-      unlockUser(user, actor());
-      if (!save()) return;
-      renderUsers();
-      renderAdminAlerts();
-      return alert("Bloke kaldırıldı. Kullanıcı yeniden giriş yapabilir.");
+    if (action === "password") {
+      alert(`“${user.name}” için şifre sıfırlama:\n\n` +
+        `Güvenlik nedeniyle yönetici, başka bir kullanıcının şifresini bu ekrandan değiştiremez.\n\n` +
+        `1. Kullanıcı şifresini biliyorsa, kendi hesabında “Şifremi değiştir” ile değiştirebilir.\n` +
+        `2. Şifre unutulduysa: Firebase konsolu → Authentication → Users bölümünde “${user.username}@${EMAIL_DOMAIN}” hesabını silin, ` +
+        `burada kullanıcıyı “Sil” ile kaldırın ve aynı kullanıcı adıyla yeni şifre vererek yeniden ekleyin. Geçmiş kayıtlardaki adı korunur.`);
+      return;
     }
 
-    if (action === "toggle") {
-      const deactivating = user.active !== false;
-      if (deactivating && user.id === currentUser.id) return alert("Kendi hesabınızı pasif yapamazsınız.");
-      if (deactivating && user.role === "admin" && activeAdmins().length <= 1) return alert("Sistemde en az bir aktif yönetici kalmalı.");
-      user.active = !deactivating;
-    }
+    try {
+      if (action === "toggle") {
+        const deactivating = user.active !== false;
+        if (deactivating && user.id === currentUser.id) return alert("Kendi hesabınızı pasif yapamazsınız.");
+        if (deactivating && user.role === "admin" && activeAdmins().length <= 1) return alert("Sistemde en az bir aktif yönetici kalmalı.");
+        await updateDoc(userRef(user.id), { active: !deactivating });
+      }
 
-    if (action === "delete") {
-      if (user.id === currentUser.id) return alert("Kendi hesabınızı silemezsiniz.");
-      if (user.role === "admin" && user.active !== false && activeAdmins().length <= 1) return alert("Sistemde en az bir aktif yönetici kalmalı.");
-      if (!confirm(`“${user.name}” kullanıcısı silinsin mi? Bu kullanıcının geçmiş kayıtlarındaki adı korunur.`)) return;
-      db.users.splice(db.users.indexOf(user), 1);
+      if (action === "delete") {
+        if (user.id === currentUser.id) return alert("Kendi hesabınızı silemezsiniz.");
+        if (user.role === "admin" && user.active !== false && activeAdmins().length <= 1) return alert("Sistemde en az bir aktif yönetici kalmalı.");
+        if (!confirm(`“${user.name}” kullanıcısı silinsin mi? Bu kullanıcı artık giriş yapamaz; geçmiş kayıtlardaki adı korunur.`)) return;
+        await deleteDoc(userRef(user.id));
+        alert(`Kullanıcı silindi.\n\nAynı kullanıcı adını ileride tekrar kullanmak isterseniz, Firebase konsolu → Authentication → Users bölümünden “${user.username}@${EMAIL_DOMAIN}” hesabını da silin.`);
+      }
+    } catch (e) {
+      console.error(e);
+      alert(friendlyError(e));
     }
-
-    if (!save()) return;
-    renderUsers();
   });
 
   function renderUsers() {
     if (!isAdmin()) return;
-    document.getElementById("lock-log").innerHTML = table(
-      ["Tarih", "Kullanıcı", "Durum"],
-      (db.notifications || []).slice(0, 50).map(n => `<tr>
-        <td class="nowrap">${esc(n.at)}</td>
-        <td>${esc(n.userName)} <span class="muted">(${esc(n.username)})</span></td>
-        <td>${n.resolved ? `Kaldırıldı — ${esc(n.resolvedBy || "")} ${esc(n.resolvedAt || "")}` : `<span class="badge lock">Bloke${n.temporary ? " (geçici)" : ""}</span>`}</td>
-      </tr>`)
-    );
     const labels = Object.fromEntries(PERMISSIONS);
     document.getElementById("users-table").innerHTML = table(
       ["Ad soyad", "Kullanıcı adı", "Rol", "Yetkiler", "Son giriş", "İşlem"],
-      db.users.map(u => `<tr>
+      [...db.users].sort((a, b) => String(a.name).localeCompare(String(b.name), "tr")).map(u => `<tr>
         <td>${esc(u.name)}${u.id === currentUser.id ? ' <span class="muted">(siz)</span>' : ""}
-          ${u.active === false ? '<br><span class="badge off">Pasif</span>' : ""}
-          ${isLocked(u) ? `<br><span class="badge lock">Bloke${u.lockUntil ? " (geçici)" : ""}</span> <span class="muted">${esc(u.lockedAt || "")}</span>`
-            : num(u.failedAttempts) ? `<br><span class="muted">Hatalı deneme: ${num(u.failedAttempts)}/${MAX_ATTEMPTS}</span>` : ""}</td>
+          ${u.active === false ? '<br><span class="badge off">Pasif</span>' : ""}</td>
         <td>${esc(u.username)}</td>
         <td><span class="badge ${u.role === "admin" ? "admin" : "user"}">${roleText(u)}</span></td>
         <td class="recipe-cell">${u.role === "admin" ? "Tüm bölümler" : (u.perms || []).map(p => esc(labels[p] || p)).join(", ") || "Yalnızca Genel Bakış"}</td>
         <td class="nowrap">${esc(u.lastLogin || "-")}</td>
         <td><div class="actions-cell">
           <button type="button" class="secondary" data-user-action="edit" data-id="${esc(u.id)}">Düzenle</button>
-          ${isLocked(u) ? `<button type="button" class="primary" data-user-action="unlock" data-id="${esc(u.id)}">Blokeyi kaldır</button>` : ""}
-          <button type="button" class="secondary" data-user-action="password" data-id="${esc(u.id)}">Şifre belirle</button>
+          <button type="button" class="secondary" data-user-action="password" data-id="${esc(u.id)}">Şifre sıfırlama</button>
           ${u.id === currentUser.id ? "" : `<button type="button" class="${u.active === false ? "secondary" : "danger"}" data-user-action="toggle" data-id="${esc(u.id)}">${u.active === false ? "Aktifleştir" : "Pasif yap"}</button>
           <button type="button" class="danger" data-user-action="delete" data-id="${esc(u.id)}">Sil</button>`}
         </div></td>
@@ -2935,25 +3275,24 @@
     );
   }
 
-  // Başka sekmede kayıt yapılınca bu sekmedeki veriyi otomatik güncelle.
-  window.addEventListener("storage", event => {
-    if (event.key !== REV_KEY && event.key !== null) return;
-    db = readStoredDb();
-    loadedRev = Number(localStorage.getItem(REV_KEY)) || 0;
-    migrateAll();
-    if (!currentUser) return initAuth();
-    const fresh = byId(db.users, currentUser.id);
-    if (!fresh || fresh.active === false) return logout();
-    currentUser = fresh;
-    applyPermissions();
-    render();
-  });
-
-  migrateAll();
-  save();
+  // ---------- Başlangıç ----------
   document.querySelectorAll('[name="date"]').forEach(input => input.value = today());
   syncRoleFields();
-  initAuth();
+  renderBranding();
+  showAuth("loading", "Bağlanıyor…");
+
+  // Oturum tarayıcı sekmesi kapanınca sona erer (ortak kullanılan bilgisayarlar için daha güvenli).
+  await setPersistence(auth, browserSessionPersistence).catch(error => console.error(error));
+  onAuthStateChanged(auth, user => {
+    if (suppressAuth) return;
+    if (!user) {
+      currentUser = null;
+      stopSync();
+      showLoginOrSetup();
+      return;
+    }
+    handleSignedIn(user);
+  });
 </script>
 </body>
 </html>
