@@ -180,6 +180,8 @@
   body.locked .app-foot { display: none; }
   @media (max-width: 560px) { .brand-logo img { height: 32px; } header h1 { font-size: 17px; } }
   .sync-status { color: #86efac; font-size: 12px; }
+  .secure-note { margin: 18px 0 0; padding-top: 12px; border-top: 1px solid var(--line); text-align: center;
+                 font-size: 12px; line-height: 1.5; color: var(--muted); }
   body.busy, body.busy * { cursor: progress !important; }
   body.busy::after { content: "Kaydediliyor…"; position: fixed; right: 16px; bottom: 16px; z-index: 100;
                      background: var(--navy); color: #fff; padding: 10px 16px; border-radius: 8px;
@@ -202,6 +204,7 @@
       <button class="primary">Giriş yap</button>
       <div class="error" id="login-error"></div>
     </form>
+    <p class="secure-note">🔒 Kullanıcı girişi ve veri güvenliği Google Firebase Authentication altyapısı ile sağlanmaktadır.</p>
 
     <form id="setup-form" class="hidden" autocomplete="off">
       <div class="notice">İlk kurulum: sistemi yönetecek <b>yönetici (admin)</b> hesabını oluşturun. Mevcut verileriniz korunur.</div>
@@ -547,6 +550,7 @@
 
 <footer class="app-foot">
   <span id="foot-company"></span>
+  <span>🔒 Güvenli giriş: Google Firebase Authentication</span>
   <span>Üretim ve Depo Takip Sistemi</span>
 </footer>
 
